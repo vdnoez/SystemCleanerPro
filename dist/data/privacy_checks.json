@@ -1,0 +1,175 @@
+{
+  "version": "1.0",
+  "_comment": "Privacy-Checks. Neue Checks einfach hinzufügen!",
+
+  "checks": [
+    {
+      "id": "telemetry",
+      "name": "Windows-Telemetrie deaktiviert",
+      "description": "Verhindert dass Windows Nutzungsdaten sendet",
+      "hive": "HKLM",
+      "path": "SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+      "value": "AllowTelemetry",
+      "expected": 0,
+      "weight": 10,
+      "fix": {
+        "action": "set_dword",
+        "value": 0
+      }
+    },
+    {
+      "id": "cortana",
+      "name": "Cortana deaktiviert",
+      "description": "Deaktiviert Microsofts Sprachassistentin",
+      "hive": "HKLM",
+      "path": "SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+      "value": "AllowCortana",
+      "expected": 0,
+      "weight": 8,
+      "fix": { "action": "set_dword", "value": 0 }
+    },
+    {
+      "id": "ad_id",
+      "name": "Werbliche ID deaktiviert",
+      "description": "Verhindert personalisierte Werbung",
+      "hive": "HKCU",
+      "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo",
+      "value": "Enabled",
+      "expected": 0,
+      "weight": 7,
+      "fix": { "action": "set_dword", "value": 0 }
+    },
+    {
+      "id": "location",
+      "name": "Standortverfolgung deaktiviert",
+      "description": "Windows darf Standort nicht verfolgen",
+      "hive": "HKLM",
+      "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\location",
+      "value": "Value",
+      "expected": "Deny",
+      "weight": 8,
+      "fix": { "action": "set_string", "value": "Deny" }
+    },
+    {
+      "id": "feedback",
+      "name": "Feedback-Anfragen deaktiviert",
+      "description": "Windows fragt nicht nach Feedback",
+      "hive": "HKCU",
+      "path": "SOFTWARE\\Microsoft\\Siuf\\Rules",
+      "value": "NumberOfSIUFInPeriod",
+      "expected": 0,
+      "weight": 5,
+      "fix": { "action": "set_dword", "value": 0 }
+    },
+    {
+      "id": "activity_history",
+      "name": "Aktivitätsverlauf deaktiviert",
+      "description": "Windows zeichnet nicht auf was du tust",
+      "hive": "HKLM",
+      "path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+      "value": "EnableActivityFeed",
+      "expected": 0,
+      "weight": 7,
+      "fix": { "action": "set_dword", "value": 0 }
+    },
+    {
+      "id": "sync_settings",
+      "name": "Einstellungs-Sync deaktiviert",
+      "description": "Einstellungen werden nicht zu Microsoft gesendet",
+      "hive": "HKCU",
+      "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\SettingSync",
+      "value": "SyncPolicy",
+      "expected": 5,
+      "weight": 5,
+      "fix": { "action": "set_dword", "value": 5 }
+    },
+    {
+      "id": "tailored_experiences",
+      "name": "Personalisierte Tipps deaktiviert",
+      "description": "Windows zeigt keine 'Vorschläge'",
+      "hive": "HKCU",
+      "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+      "value": "SubscribedContent-338389Enabled",
+      "expected": 0,
+      "weight": 6,
+      "fix": { "action": "set_dword", "value": 0 }
+    },
+    {
+      "id": "app_launch_tracking",
+      "name": "App-Start-Tracking deaktiviert",
+      "description": "Windows trackt nicht welche Apps du startest",
+      "hive": "HKCU",
+      "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "value": "Start_TrackProgs",
+      "expected": 0,
+      "weight": 6,
+      "fix": { "action": "set_dword", "value": 0 }
+    },
+    {
+      "id": "bing_search",
+      "name": "Bing-Suche im Startmenü aus",
+      "description": "Startmenü-Suche geht nicht zu Bing",
+      "hive": "HKCU",
+      "path": "SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+      "value": "DisableSearchBoxSuggestions",
+      "expected": 1,
+      "weight": 5,
+      "fix": { "action": "set_dword", "value": 1 }
+    },
+    {
+      "id": "smartscreen_off",
+      "name": "SmartScreen deaktiviert",
+      "description": "Windows lädt keine Daten über geöffnete Programme",
+      "hive": "HKLM",
+      "path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+      "value": "EnableSmartScreen",
+      "expected": 0,
+      "weight": 4,
+      "fix": { "action": "set_dword", "value": 0 }
+    },
+    {
+      "id": "camera_deny",
+      "name": "Kamera-Zugriff eingeschränkt",
+      "description": "Apps können nicht auf Kamera zugreifen",
+      "hive": "HKLM",
+      "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\webcam",
+      "value": "Value",
+      "expected": "Deny",
+      "weight": 5,
+      "fix": { "action": "set_string", "value": "Deny" }
+    },
+    {
+      "id": "microphone_deny",
+      "name": "Mikrofon-Zugriff eingeschränkt",
+      "description": "Apps können nicht auf Mikrofon zugreifen",
+      "hive": "HKLM",
+      "path": "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone",
+      "value": "Value",
+      "expected": "Deny",
+      "weight": 5,
+      "fix": { "action": "set_string", "value": "Deny" }
+    },
+    {
+      "id": "clipboard_sync",
+      "name": "Cloud-Zwischenablage aus",
+      "description": "Zwischenablage wird nicht zu Microsoft synchronisiert",
+      "hive": "HKLM",
+      "path": "SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+      "value": "AllowCrossDeviceClipboard",
+      "expected": 0,
+      "weight": 4,
+      "fix": { "action": "set_dword", "value": 0 }
+    },
+    {
+      "id": "wifi_sense",
+      "name": "WiFi-Sense deaktiviert",
+      "description": "Passwörter werden nicht mit Kontakten geteilt",
+      "hive": "HKLM",
+      "path": "SOFTWARE\\Microsoft\\WcmSvc\\wifinetworkmanager\\config",
+      "value": "WiFiSenseCredShared",
+      "expected": 0,
+      "weight": 4,
+      "fix": { "action": "set_dword", "value": 0 }
+    }
+  ]
+}

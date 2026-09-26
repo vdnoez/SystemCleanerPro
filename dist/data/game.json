@@ -1,0 +1,30 @@
+{
+  "_comment": "Neue Spiele einfach hier hinzufügen. Format: 'prozess.exe': {...}",
+
+  "cs2.exe": {"profile": "fps", "priority": "high"},
+  "valorant.exe": {"profile": "fps", "priority": "high"},
+  "fortnite.exe": {"profile": "fps", "priority": "high"},
+  "apex_legends.exe": {"profile": "fps", "priority": "high"},
+  "overwatch.exe": {"profile": "fps", "priority": "high"},
+  "rainbowsix.exe": {"profile": "fps", "priority": "high"},
+  "r5apex.exe": {"profile": "fps", "priority": "high"},
+
+  "cyberpunk2077.exe": {"profile": "aaa", "priority": "high"},
+  "eldenring.exe": {"profile": "aaa", "priority": "high"},
+  "gta5.exe": {"profile": "aaa", "priority": "high"},
+  "rdr2.exe": {"profile": "aaa", "priority": "high"},
+  "witcher3.exe": {"profile": "aaa", "priority": "high"},
+  "hogwartslegacy.exe": {"profile": "aaa", "priority": "high"},
+  "starfield.exe": {"profile": "aaa", "priority": "high"},
+
+  "dota2.exe": {"profile": "moba", "priority": "high"},
+  "league of legends.exe": {"profile": "moba", "priority": "high"},
+  "lol.exe": {"profile": "moba", "priority": "high"},
+
+  "minecraft.exe": {"profile": "light", "priority": "normal"},
+  "javaw.exe": {"profile": "light", "priority": "normal", "note": "Minecraft Java"},
+
+  "rocketleague.exe": {"profile": "sport", "priority": "high"},
+  "fifa23.exe": {"profile": "sport", "priority": "high"},
+  "fc24.exe": {"profile": "sport", "priority": "high"}
+}

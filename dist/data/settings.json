@@ -1,0 +1,9 @@
+{
+  "theme": "aurora",
+  "start_minimized": false,
+  "minimize_to_tray": true,
+  "close_to_tray": true,
+  "auto_refresh_seconds": 2,
+  "show_splash": true,
+  "confirm_delete": true
+}
