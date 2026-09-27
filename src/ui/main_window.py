@@ -1,4 +1,4 @@
-"""Hauptfenster — Sidebar mit Kategorien."""
+"""Hauptfenster — Sidebar mit Pro-Feature-Sperren."""
 import sys
 from pathlib import Path
 
@@ -13,6 +13,7 @@ from PyQt6.QtGui import QShortcut, QKeySequence
 from PyQt6.QtCore import Qt
 
 from src.core.config import APP_NAME, APP_VERSION, APP_OWNER
+from src.core.license_gate import is_page_locked, get_license_badge
 from src.ui.theme import get_stylesheet, Colors, get_theme_name
 from src.ui.icons import icon
 from src.ui.dashboard import Dashboard
@@ -30,13 +31,15 @@ from src.ui.pages.stats_page import StatsPage
 from src.ui.pages.sysinfo_page import SysInfoPage
 from src.ui.pages.password_page import PasswordPage
 from src.ui.pages.update_page import UpdatePage
+from src.ui.pages.license_page import LicensePage
+from src.ui.pages.locked_page import LockedPage
 from src.ui.settings_dialog import SettingsDialog, load_settings
 from src.ui.about_dialog import AboutDialog
 from src.ui.tray import create_tray_icon
 
 
 # ═══════════════════════════════════════════════════════════════
-# NAVIGATION
+# NAVIGATION — mit Lock-Markierung
 # ═══════════════════════════════════════════════════════════════
 NAV_STRUCTURE = [
     {
@@ -79,6 +82,12 @@ NAV_STRUCTURE = [
             ("Games", "games"),
         ],
     },
+    {
+        "label": "⚙  SYSTEM",
+        "items": [
+            ("Lizenz", "shield"),
+        ],
+    },
 ]
 
 
@@ -109,23 +118,7 @@ class MainWindow(QMainWindow):
 
         # ═══════ CONTENT ═══════
         self.stack = QStackedWidget()
-        self._pages = [
-            HealthPage(),
-            Dashboard(),
-            SysInfoPage(),
-            ProcessesPage(),
-            NetworkPage(),
-            CleanerPage(),
-            SoftwareUpdaterPage(),
-            RamPage(),
-            ShredderPage(),
-            StartupPage(),
-            UpdatePage(),
-            PasswordPage(),
-            BsodPage(),
-            StatsPage(),
-            GamesPage(),
-        ]
+        self._build_pages()
 
         for p in self._pages:
             scroll = QScrollArea()
@@ -150,6 +143,37 @@ class MainWindow(QMainWindow):
 
         self._setup_shortcuts()
 
+    def _build_pages(self):
+        """Erstellt alle Seiten — mit Sperren für Pro-Features."""
+        # Reihenfolge MUSS zur NAV_STRUCTURE passen!
+        builders = [
+            ("Health-Check", HealthPage),
+            ("Dashboard", Dashboard),
+            ("System-Info", SysInfoPage),
+            ("Prozesse", ProcessesPage),
+            ("Netzwerk", NetworkPage),
+            ("Cleaner", CleanerPage),
+            ("Software-Updater", SoftwareUpdaterPage),
+            ("RAM", RamPage),
+            ("Shredder", ShredderPage),
+            ("Autostart", StartupPage),
+            ("App-Update", UpdatePage),
+            ("Passwort", PasswordPage),
+            ("BSOD", BsodPage),
+            ("Downloads", StatsPage),
+            ("Games", GamesPage),
+            ("Lizenz", LicensePage),
+        ]
+
+        self._pages = []
+        for page_name, page_class in builders:
+            if is_page_locked(page_name):
+                # Gesperrt → LockedPage anzeigen
+                self._pages.append(LockedPage(page_name))
+            else:
+                # Frei → echte Seite
+                self._pages.append(page_class())
+
     def _setup_shortcuts(self):
         for i in range(min(9, len(PAGES_ORDER))):
             sc = QShortcut(QKeySequence(f"Ctrl+{i+1}"), self)
@@ -169,10 +193,34 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        # ─── Logo + Badge ───
+        logo_container = QWidget()
+        logo_layout = QHBoxLayout(logo_container)
+        logo_layout.setContentsMargins(24, 20, 20, 12)
+        logo_layout.setSpacing(8)
+
         logo = QLabel("⚡  Cleaner Pro")
         logo.setObjectName("Logo")
-        layout.addWidget(logo)
+        logo.setStyleSheet(
+            f"color: {Colors.TEXT_PRIMARY}; font-size: 15px; "
+            "font-weight: 800;"
+        )
+        logo_layout.addWidget(logo)
+        logo_layout.addStretch()
 
+        # Lizenz-Badge
+        badge_info = get_license_badge()
+        badge = QLabel(badge_info["text"])
+        badge.setStyleSheet(
+            f"background-color: {badge_info['color']}; "
+            "color: white; font-size: 9px; font-weight: 800; "
+            "padding: 3px 8px; border-radius: 8px;"
+        )
+        logo_layout.addWidget(badge)
+
+        layout.addWidget(logo_container)
+
+        # ─── Navigation ───
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
         self._nav_buttons = []
@@ -184,11 +232,27 @@ class MainWindow(QMainWindow):
             layout.addWidget(cat_lbl)
 
             for label, icon_name in cat["items"]:
-                btn = QPushButton(f"   {label}")
+                locked = is_page_locked(label)
+                text = f"   {label}"
+                if locked:
+                    text = f"   🔒  {label}"
+
+                btn = QPushButton(text)
                 btn.setObjectName("NavButton")
-                btn.setIcon(icon(icon_name, Colors.TEXT_SECONDARY))
+                if not locked:
+                    btn.setIcon(icon(icon_name, Colors.TEXT_SECONDARY))
                 btn.setCheckable(True)
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+                if locked:
+                    btn.setStyleSheet(
+                        f"QPushButton#NavButton {{"
+                        f"  color: {Colors.TEXT_MUTED};"
+                        f"}}"
+                        f"QPushButton#NavButton:hover {{"
+                        f"  color: {Colors.TEXT_SECONDARY};"
+                        f"}}"
+                    )
 
                 if button_index == 0:
                     btn.setChecked(True)

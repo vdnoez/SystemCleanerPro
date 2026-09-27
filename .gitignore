@@ -22,3 +22,20 @@ data/*.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Lizenz-Dateien (NIE committen!)
+data/license.json
+keygen.py
+src/modules/license.py
+
+# Private Konfiguration
+data/settings.json
+data/first_run.json
+
+# Build-Artefakte
+build/
+dist/
+*.spec
+*.pyc
+__pycache__/
+*.log

@@ -1,4 +1,4 @@
-"""Entry point — Admin-Start, Auto-Update."""
+"""Entry point — Admin-Start, Lizenz-Check, Auto-Update."""
 import sys
 import os
 import ctypes
@@ -9,7 +9,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 
 # ═══════════════════════════════════════════════════════════════
-# RAM-CLEANER HELPER-MODUS
+# RAM-CLEANER HELPER-MODUS (muss VOR Admin-Check stehen!)
 # ═══════════════════════════════════════════════════════════════
 def _run_ram_cleaner_helper():
     try:
@@ -37,6 +37,8 @@ if "--ram-cleaner-helper" in sys.argv:
     _run_ram_cleaner_helper()
 
 
+# ═══════════════════════════════════════════════════════════════
+# HELPER
 # ═══════════════════════════════════════════════════════════════
 def is_admin() -> bool:
     try:
@@ -73,13 +75,16 @@ def _cleanup_temp_on_start():
 
 
 # ═══════════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════════
 def main():
+    # ─── Admin-Check ───
     if not is_admin():
         print("Starte mit Administrator-Rechten...")
         if run_as_admin():
             sys.exit(0)
         else:
-            print("⚠️  Admin-Start abgelehnt")
+            print("⚠️  Admin-Start abgelehnt — starte normal")
 
     _cleanup_temp_on_start()
 
@@ -93,12 +98,60 @@ def main():
     app.setApplicationVersion(APP_VERSION)
     app.setQuitOnLastWindowClosed(False)
 
+    # ═══════════════════════════════════════════════════════════
+    # LIZENZ-CHECK
+    # ═══════════════════════════════════════════════════════════
+    try:
+        from src.modules.license import get_license_status
+        from src.ui.license_dialog import LicenseDialog
+
+        status = get_license_status()
+
+        if status["status"] == "expired":
+            # Trial abgelaufen → Aktivierung erzwingen
+            dialog = LicenseDialog(force_activation=True)
+            dialog.exec()
+            if not dialog.activated:
+                print("Lizenz nicht aktiviert — beende App")
+                sys.exit(0)
+
+        elif status["status"] == "missing":
+            # Kein Status → Aktivierung erzwingen
+            dialog = LicenseDialog(force_activation=True)
+            dialog.exec()
+            if not dialog.activated:
+                sys.exit(0)
+
+        elif status["status"] == "trial":
+            # Trial läuft — bei wenig Restzeit warnen
+            days = status.get("trial_days_left", 0)
+            if days <= 3:
+                reply = QMessageBox.question(
+                    None,
+                    f"Testversion — noch {days} Tage",
+                    f"Deine Testversion läuft am "
+                    f"{status.get('trial_expires', '?')} ab.\n\n"
+                    f"Möchtest du jetzt einen Lizenz-Key eingeben?",
+                    QMessageBox.StandardButton.Yes |
+                    QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    LicenseDialog().exec()
+    except Exception as e:
+        print(f"[Lizenz-Fehler] {e}")
+
+    # ═══════════════════════════════════════════════════════════
+    # THEME
+    # ═══════════════════════════════════════════════════════════
     from src.ui.settings_dialog import load_settings
     from src.ui.theme import set_theme
     settings = load_settings()
     set_theme(settings.get("theme", "slate"))
 
-    # Auto-Update-Check
+    # ═══════════════════════════════════════════════════════════
+    # AUTO-UPDATE-CHECK
+    # ═══════════════════════════════════════════════════════════
     if settings.get("auto_check_updates", True):
         try:
             from src.modules.updater import check_for_update
@@ -124,7 +177,9 @@ def main():
         except Exception as e:
             print(f"[Auto-Update] Fehler: {e}")
 
-    # Splash oder direkt
+    # ═══════════════════════════════════════════════════════════
+    # SPLASH + MAIN WINDOW
+    # ═══════════════════════════════════════════════════════════
     if settings.get("show_splash", True):
         try:
             from src.ui.splash import SplashScreen
@@ -144,11 +199,13 @@ def main():
                     from src.ui.main_window import MainWindow
                     window = MainWindow()
                     window.show()
+
                     if app.property("open_update_page"):
                         try:
                             window.open_update_page()
                         except Exception:
                             pass
+
                     try:
                         splash.finish(window)
                     except Exception:
@@ -162,9 +219,15 @@ def main():
             fallback.timeout.connect(launch_main)
             fallback.start(8000)
         except Exception as e:
-            print(f"[Splash-Fehler] {e}")
+            print(f"[Splash-Fehler] {e} — starte direkt")
             from src.ui.main_window import MainWindow
-            MainWindow().show()
+            window = MainWindow()
+            window.show()
+            if app.property("open_update_page"):
+                try:
+                    window.open_update_page()
+                except Exception:
+                    pass
     else:
         from src.ui.main_window import MainWindow
         window = MainWindow()
