@@ -1,48 +1,60 @@
-"""Software-Updater via winget."""
+"""Software-Updater via winget — mit Encoding-Fix."""
 import subprocess
 import json
 import re
+import os
 from typing import Callable
 
 
+def _run_winget(args: list, timeout: int = 60) -> tuple:
+    """
+    Führt winget-Befehl aus.
+    Nutzt 'errors=replace' um Encoding-Fehler zu vermeiden.
+    """
+    try:
+        r = subprocess.run(
+            ["winget"] + args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace",  # ⭐ Fix für Encoding-Fehler
+            creationflags=subprocess.CREATE_NO_WINDOW
+            if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+        )
+        return r.returncode == 0, r.stdout or "", r.stderr or ""
+    except subprocess.TimeoutExpired:
+        return False, "", "Timeout"
+    except FileNotFoundError:
+        return False, "", "winget nicht gefunden"
+    except Exception as e:
+        return False, "", str(e)
+
+
 def is_winget_available() -> bool:
-    """Prüft ob winget installiert ist."""
     try:
         r = subprocess.run(
             ["winget", "--version"],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10,
+            encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW
+            if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
         )
         return r.returncode == 0
     except Exception:
         return False
 
 
-def _run_winget(args: list, timeout: int = 60) -> tuple:
-    """Führt winget-Befehl aus. Returns (success, stdout, stderr)."""
-    try:
-        r = subprocess.run(
-            ["winget"] + args,
-            capture_output=True, text=True, timeout=timeout,
-            encoding="utf-8", errors="replace"
-        )
-        return r.returncode == 0, r.stdout, r.stderr
-    except subprocess.TimeoutExpired:
-        return False, "", "Timeout"
-    except Exception as e:
-        return False, "", str(e)
-
-
 def list_installed() -> list:
-    """Listet alle installierten Programme."""
     success, out, err = _run_winget(["list", "--accept-source-agreements"])
     if not success:
         return []
 
     programs = []
     lines = out.split("\n")
-    # Überspringe Header (erste 2-3 Zeilen)
-    in_list = False
     header_end = 0
+    in_list = False
+
     for i, line in enumerate(lines):
         if line.startswith("---") or line.startswith("Name"):
             header_end = i + 1
@@ -56,9 +68,6 @@ def list_installed() -> list:
         line = line.rstrip()
         if not line or line.startswith("-"):
             continue
-
-        # Spalten sind normalerweise: Name, Id, Version, Available, Source
-        # Wir splitten an 2+ Leerzeichen
         parts = re.split(r"\s{2,}", line.strip())
         if len(parts) >= 3:
             programs.append({
@@ -72,7 +81,6 @@ def list_installed() -> list:
 
 
 def list_upgradable() -> list:
-    """Listet Programme mit verfügbaren Updates."""
     success, out, err = _run_winget([
         "upgrade", "--include-unknown",
         "--accept-source-agreements"
@@ -83,6 +91,7 @@ def list_upgradable() -> list:
     programs = []
     lines = out.split("\n")
     header_end = 0
+
     for i, line in enumerate(lines):
         if line.startswith("---"):
             header_end = i + 1
@@ -111,7 +120,6 @@ def list_upgradable() -> list:
 
 def upgrade_package(package_id: str,
                     progress_cb: Callable = None) -> tuple:
-    """Führt Update für ein Paket aus."""
     if progress_cb:
         progress_cb(f"Update: {package_id}")
 
@@ -124,11 +132,10 @@ def upgrade_package(package_id: str,
 
     if success:
         return True, f"✅ {package_id} aktualisiert"
-    return False, f"❌ {package_id}: {err or out[:200]}"
+    return False, f"❌ {package_id}: {(err or out)[:200]}"
 
 
 def upgrade_all(progress_cb: Callable = None) -> tuple:
-    """Führt alle Updates aus."""
     if progress_cb:
         progress_cb("Aktualisiere alle Pakete...")
 
@@ -141,12 +148,11 @@ def upgrade_all(progress_cb: Callable = None) -> tuple:
 
     if success:
         return True, "✅ Alle Updates installiert"
-    return False, f"❌ Fehler: {err or out[:500]}"
+    return False, f"❌ Fehler: {(err or out)[:500]}"
 
 
 def uninstall_package(package_id: str,
                       progress_cb: Callable = None) -> tuple:
-    """Deinstalliert ein Paket."""
     if progress_cb:
         progress_cb(f"Deinstalliere: {package_id}")
 
@@ -157,11 +163,10 @@ def uninstall_package(package_id: str,
 
     if success:
         return True, f"✅ {package_id} deinstalliert"
-    return False, f"❌ {package_id}: {err or out[:200]}"
+    return False, f"❌ {package_id}: {(err or out)[:200]}"
 
 
 def search_package(query: str) -> list:
-    """Sucht Pakete in winget-Repo."""
     success, out, err = _run_winget([
         "search", query, "--accept-source-agreements"
     ], timeout=30)
@@ -171,6 +176,7 @@ def search_package(query: str) -> list:
     results = []
     lines = out.split("\n")
     header_end = 0
+
     for i, line in enumerate(lines):
         if line.startswith("---"):
             header_end = i + 1

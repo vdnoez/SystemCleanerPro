@@ -1,11 +1,14 @@
-"""Boot-Time-Analyzer — aufgeräumt."""
+"""Boot-Time-Analyzer — mit Toasts und Empty-States."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QListWidget, QListWidgetItem, QApplication
+    QListWidget, QListWidgetItem, QApplication, QStackedWidget
 )
 
-from src.ui.widgets import Card, MetricCard, PageHeader
+from src.ui.widgets import (
+    Card, MetricCard, PageHeader, EmptyState, LoadingState
+)
 from src.ui.theme import Colors
+from src.ui.toast import toast
 from src.modules.boot_analyzer import get_boot_summary, format_ms
 
 
@@ -23,7 +26,6 @@ class BootPage(QWidget):
             "Zeigt wie lange Windows zum Starten braucht"
         ))
 
-        # ─── Metric-Cards ───
         row = QHBoxLayout()
         row.setSpacing(14)
         self.latest_card = MetricCard("Letzter Boot", "🕐")
@@ -33,14 +35,11 @@ class BootPage(QWidget):
             row.addWidget(w)
         layout.addLayout(row)
 
-        # ─── Info-Card ───
         info_card = Card("Info")
         info = QLabel(
             "Windows loggt bei jedem Boot die Zeit die es braucht. "
             "Werte unter 30 Sekunden sind normal, über 60 Sekunden "
-            "deuten auf zu viele Autostart-Programme hin. "
-            "Tipp: Nutze den Autostart-Manager um langsame Programme "
-            "zu deaktivieren."
+            "deuten auf zu viele Autostart-Programme hin."
         )
         info.setWordWrap(True)
         info.setStyleSheet(
@@ -49,7 +48,6 @@ class BootPage(QWidget):
         info_card.add(info)
         layout.addWidget(info_card)
 
-        # ─── Button ───
         btn_row = QHBoxLayout()
         self.scan_btn = QPushButton("🔍 Boot-Daten laden")
         self.scan_btn.setMinimumHeight(42)
@@ -58,11 +56,26 @@ class BootPage(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-        # ─── Liste ───
+        # Result-Stack
         result_card = Card("Boot-Verlauf (letzte 30 Starts)")
+        self.stack = QStackedWidget()
+
+        self.empty_state = EmptyState(
+            icon="📈",
+            title="Noch keine Boot-Daten",
+            message="Klick auf 'Boot-Daten laden' um die letzten Startzeiten zu sehen.",
+        )
+        self.stack.addWidget(self.empty_state)
+
+        self.loading_state = LoadingState("Lade Boot-Daten...")
+        self.stack.addWidget(self.loading_state)
+
         self.list_widget = QListWidget()
         self.list_widget.setMinimumHeight(260)
-        result_card.add(self.list_widget)
+        self.stack.addWidget(self.list_widget)
+
+        self.stack.setCurrentIndex(0)
+        result_card.add(self.stack)
         layout.addWidget(result_card)
 
         layout.addStretch()
@@ -75,6 +88,7 @@ class BootPage(QWidget):
         try:
             self.scan_btn.setEnabled(False)
             self.scan_btn.setText("⏳ Lade...")
+            self.stack.setCurrentIndex(1)
         except RuntimeError:
             pass
         QApplication.processEvents()
@@ -117,11 +131,16 @@ class BootPage(QWidget):
         self.list_widget.clear()
 
         if not events:
-            self.list_widget.addItem(
-                "ℹ️  Keine Boot-Daten im Event-Log gefunden.\n"
-                "     Windows loggt Boot-Performance nur wenn "
-                "Diagnose aktiviert ist."
+            self.empty_state = EmptyState(
+                icon="📭",
+                title="Keine Boot-Daten gefunden",
+                message="Windows loggt Boot-Performance nur wenn "
+                        "Diagnose aktiviert ist.",
             )
+            self.stack.removeWidget(self.stack.widget(0))
+            self.stack.insertWidget(0, self.empty_state)
+            self.stack.setCurrentIndex(0)
+            toast.warning("Keine Boot-Daten im Event-Log")
             return
 
         for ev in events:
@@ -137,3 +156,6 @@ class BootPage(QWidget):
                 f"Post-Boot: {format_ms(ev.get('post_boot_ms', 0))}"
             )
             self.list_widget.addItem(QListWidgetItem(text))
+
+        self.stack.setCurrentIndex(2)
+        toast.success(f"{len(events)} Boots geladen")

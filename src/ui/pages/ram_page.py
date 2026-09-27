@@ -1,12 +1,13 @@
-﻿"""RAM-Cleaner-Seite."""
+﻿"""RAM-Cleaner-Seite — mit Toasts."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QMessageBox, QApplication
+    QApplication
 )
 from PyQt6.QtCore import QTimer
 
 from src.ui.widgets import Card, MetricCard, PageHeader
 from src.ui.theme import Colors
+from src.ui.toast import toast
 from src.modules.ram_cleaner import get_memory_status, empty_working_sets
 
 
@@ -24,7 +25,6 @@ class RamPage(QWidget):
             "Gibt Arbeitsspeicher frei — ohne Programme zu schließen"
         ))
 
-        # ─── Metric-Cards ───
         row = QHBoxLayout()
         row.setSpacing(14)
         self.used_card = MetricCard("Belegt", "📊")
@@ -34,7 +34,6 @@ class RamPage(QWidget):
             row.addWidget(w)
         layout.addLayout(row)
 
-        # ─── Info-Card ───
         info_card = Card("Info")
         info = QLabel(
             "Der RAM-Cleaner leert die Working Sets aller Prozesse. "
@@ -49,7 +48,6 @@ class RamPage(QWidget):
         info_card.add(info)
         layout.addWidget(info_card)
 
-        # ─── Button ───
         btn_row = QHBoxLayout()
         self.clean_btn = QPushButton("🚀 RAM jetzt freigeben")
         self.clean_btn.setMinimumHeight(44)
@@ -58,7 +56,6 @@ class RamPage(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-        # ─── Ergebnis-Label ───
         self.result_label = QLabel("")
         self.result_label.setStyleSheet(
             f"color: {Colors.SUCCESS}; font-size: 13px; font-weight: 700;"
@@ -68,7 +65,6 @@ class RamPage(QWidget):
 
         layout.addStretch()
 
-        # ─── Auto-Refresh ───
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(2000)
@@ -127,13 +123,7 @@ class RamPage(QWidget):
         self._busy = False
 
         if not result.get("success"):
-            try:
-                QMessageBox.warning(
-                    self, "Fehler",
-                    result.get("error", "Unbekannter Fehler")
-                )
-            except RuntimeError:
-                pass
+            toast.error(f"Fehler: {result.get('error', 'Unbekannt')}")
             return
 
         freed = result.get("freed_gb", 0)
@@ -141,13 +131,14 @@ class RamPage(QWidget):
         skipped = result.get("processes_skipped", 0)
         failed = result.get("processes_failed", 0)
 
+        msg = f"✅ {cleared} Prozesse optimiert  ·  {freed:.2f} GB freigegeben"
+        if skipped or failed:
+            msg += f"  ·  {skipped} übersprungen, {failed} fehlgeschlagen"
+
         try:
-            self.result_label.setText(
-                f"✅ {cleared} Prozesse optimiert  ·  "
-                f"{freed:.2f} GB freigegeben  ·  "
-                f"{skipped} übersprungen, {failed} fehlgeschlagen"
-            )
+            self.result_label.setText(msg)
         except RuntimeError:
             pass
 
+        toast.success(f"RAM optimiert · {freed:.2f} GB freigegeben")
         self.refresh()

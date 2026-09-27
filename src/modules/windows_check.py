@@ -1,11 +1,8 @@
-"""Windows-Health-Check — 13 Checks für Systemgesundheit."""
+"""Windows-Health-Check — 13 Checks mit Encoding-Fix."""
 import os
-import sys
 import platform
 import subprocess
-import shutil
 from pathlib import Path
-from datetime import datetime, timedelta
 
 try:
     import winreg
@@ -20,17 +17,20 @@ except ImportError:
     HAS_PSUTIL = False
 
 
-# ═══════════════════════════════════════════════════════════════
-# HELPER
-# ═══════════════════════════════════════════════════════════════
-def _run_ps(cmd: str, timeout: int = 15) -> str:
-    """PowerShell-Befehl ausführen und stdout zurückgeben."""
+def _run_ps(cmd: str, timeout: int = 20) -> str:
+    """PowerShell mit Encoding-Fix."""
     try:
+        ps_path = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+        if not os.path.exists(ps_path):
+            ps_path = "powershell.exe"
         r = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", cmd],
-            capture_output=True, text=True, timeout=timeout
+            [ps_path, "-NoProfile", "-Command", cmd],
+            capture_output=True, text=True, timeout=timeout,
+            encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW
+            if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
         )
-        return r.stdout.strip()
+        return (r.stdout or "").strip()
     except Exception:
         return ""
 
@@ -40,13 +40,10 @@ def _fmt_gb(b: float) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════
-# CHECK 1: Windows-Version
-# ═══════════════════════════════════════════════════════════════
 def check_windows_version() -> dict:
     try:
         ver = platform.version()
         release = platform.release()
-        # Build-Nummer
         build = int(ver.split(".")[-1]) if "." in ver else 0
 
         if "11" in release or build >= 22000:
@@ -56,35 +53,22 @@ def check_windows_version() -> dict:
         else:
             edition = release
 
-        # Aktuell?
-        # Windows 11: Build >= 22621 = aktuell
-        # Windows 10: Build >= 19045 = aktuell
         is_current = build >= 22000 if "11" in edition else build >= 19045
 
         if is_current:
-            return {
-                "id": "win_version", "status": "ok",
+            return {"id": "win_version", "status": "ok",
+                    "name": "Windows-Version",
+                    "detail": f"{edition}  ·  Build {build}", "fix": None}
+        return {"id": "win_version", "status": "warn",
                 "name": "Windows-Version",
-                "detail": f"{edition}  ·  Build {build}",
-                "fix": None,
-            }
-        return {
-            "id": "win_version", "status": "warn",
-            "name": "Windows-Version",
-            "detail": f"{edition}  ·  Build {build} (veraltet?)",
-            "fix": None,
-        }
+                "detail": f"{edition}  ·  Build {build} (veraltet?)",
+                "fix": None}
     except Exception as e:
-        return {
-            "id": "win_version", "status": "error",
-            "name": "Windows-Version",
-            "detail": f"Fehler: {e}", "fix": None,
-        }
+        return {"id": "win_version", "status": "error",
+                "name": "Windows-Version",
+                "detail": f"Fehler: {e}", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHECK 2: Windows Update
-# ═══════════════════════════════════════════════════════════════
 def check_windows_update() -> dict:
     try:
         out = _run_ps(
@@ -92,16 +76,14 @@ def check_windows_update() -> dict:
             "Results.LastSearchSuccessDate"
         )
         if not out or "null" in out.lower():
-            return {
-                "id": "win_update", "status": "warn",
-                "name": "Windows Update",
-                "detail": "Kein Update-Verlauf gefunden",
-                "fix": None,
-            }
+            return {"id": "win_update", "status": "warn",
+                    "name": "Windows Update",
+                    "detail": "Kein Update-Verlauf gefunden", "fix": None}
 
-        # Datum parsen (englisch/ISO)
+        from datetime import datetime
         days_ago = None
-        for fmt in ("%m/%d/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%d.%m.%Y %H:%M:%S"):
+        for fmt in ("%m/%d/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S",
+                    "%d.%m.%Y %H:%M:%S"):
             try:
                 dt = datetime.strptime(out[:19], fmt)
                 days_ago = (datetime.now() - dt).days
@@ -110,40 +92,26 @@ def check_windows_update() -> dict:
                 continue
 
         if days_ago is None:
-            return {
-                "id": "win_update", "status": "ok",
-                "name": "Windows Update",
-                "detail": f"Letzte Suche: {out[:19]}",
-                "fix": None,
-            }
+            return {"id": "win_update", "status": "ok",
+                    "name": "Windows Update",
+                    "detail": f"Letzte Suche: {out[:19]}", "fix": None}
 
         if days_ago <= 7:
-            return {
-                "id": "win_update", "status": "ok",
+            return {"id": "win_update", "status": "ok",
+                    "name": "Windows Update",
+                    "detail": f"Letzte Suche vor {days_ago} Tagen",
+                    "fix": None}
+        return {"id": "win_update", "status": "warn",
                 "name": "Windows Update",
-                "detail": f"Letzte Suche vor {days_ago} Tagen",
-                "fix": None,
-            }
-        return {
-            "id": "win_update", "status": "warn",
-            "name": "Windows Update",
-            "detail": f"Letzte Suche vor {days_ago} Tagen — Update prüfen!",
-            "fix": {
-                "action": "open_url",
-                "value": "ms-settings:windowsupdate",
-            },
-        }
+                "detail": f"Letzte Suche vor {days_ago} Tagen — prüfen!",
+                "fix": {"action": "open_url",
+                        "value": "ms-settings:windowsupdate"}}
     except Exception as e:
-        return {
-            "id": "win_update", "status": "error",
-            "name": "Windows Update",
-            "detail": f"Fehler: {e}", "fix": None,
-        }
+        return {"id": "win_update", "status": "error",
+                "name": "Windows Update",
+                "detail": f"Fehler: {e}", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHECK 3: Festplattenplatz
-# ═══════════════════════════════════════════════════════════════
 def check_disk_space() -> dict:
     try:
         if not HAS_PSUTIL:
@@ -162,21 +130,16 @@ def check_disk_space() -> dict:
         else:
             status = "error"
 
-        return {
-            "id": "disk", "status": status,
-            "name": "Festplattenplatz (C:)",
-            "detail": f"{_fmt_gb(free_gb)} frei ({free_pct:.1f}%)",
-            "fix": None,
-        }
+        return {"id": "disk", "status": status,
+                "name": "Festplattenplatz (C:)",
+                "detail": f"{_fmt_gb(free_gb)} frei ({free_pct:.1f}%)",
+                "fix": None}
     except Exception as e:
         return {"id": "disk", "status": "error",
                 "name": "Festplattenplatz",
                 "detail": f"Fehler: {e}", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHECK 4: Windows Defender
-# ═══════════════════════════════════════════════════════════════
 def check_defender() -> dict:
     try:
         out = _run_ps(
@@ -197,37 +160,30 @@ def check_defender() -> dict:
         sig_update = data.get("AntivirusSignatureLastUpdated", "")
 
         if av_on and rt_on:
-            return {
-                "id": "defender", "status": "ok",
-                "name": "Windows Defender",
-                "detail": f"✅ Aktiv mit Echtzeitschutz"
-                          + (f"  ·  Signaturen: {sig_update[:10]}"
-                             if sig_update else ""),
-                "fix": None,
-            }
+            detail = "✅ Aktiv mit Echtzeitschutz"
+            if sig_update:
+                detail += f"  ·  Signaturen: {sig_update[:10]}"
+            return {"id": "defender", "status": "ok",
+                    "name": "Windows Defender",
+                    "detail": detail, "fix": None}
+
         problems = []
         if not av_on:
             problems.append("Virenschutz AUS")
         if not rt_on:
             problems.append("Echtzeitschutz AUS")
-        return {
-            "id": "defender", "status": "error",
-            "name": "Windows Defender",
-            "detail": "⚠️  " + ", ".join(problems),
-            "fix": {
-                "action": "open_url",
-                "value": "windowsdefender://threat",
-            },
-        }
+
+        return {"id": "defender", "status": "error",
+                "name": "Windows Defender",
+                "detail": "⚠️  " + ", ".join(problems),
+                "fix": {"action": "open_url",
+                        "value": "windowsdefender://threat"}}
     except Exception as e:
         return {"id": "defender", "status": "warn",
                 "name": "Windows Defender",
                 "detail": f"Fehler: {e}", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHECK 5: Firewall
-# ═══════════════════════════════════════════════════════════════
 def check_firewall() -> dict:
     try:
         out = _run_ps(
@@ -248,55 +204,44 @@ def check_firewall() -> dict:
         total = len(data)
 
         if len(enabled) == total and total > 0:
-            return {
-                "id": "firewall", "status": "ok",
+            return {"id": "firewall", "status": "ok",
+                    "name": "Firewall",
+                    "detail": f"✅ Aktiv für alle {total} Profile",
+                    "fix": None}
+        return {"id": "firewall", "status": "error",
                 "name": "Firewall",
-                "detail": f"✅ Aktiv für alle {total} Profile",
-                "fix": None,
-            }
-        return {
-            "id": "firewall", "status": "error",
-            "name": "Firewall",
-            "detail": f"⚠️  Nur {len(enabled)}/{total} Profile aktiv",
-            "fix": {"action": "open_url", "value": "ms-settings:windowsdefender"},
-        }
+                "detail": f"⚠️  Nur {len(enabled)}/{total} Profile aktiv",
+                "fix": {"action": "open_url",
+                        "value": "ms-settings:windowsdefender"}}
     except Exception as e:
         return {"id": "firewall", "status": "warn",
                 "name": "Firewall",
                 "detail": f"Fehler: {e}", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHECK 6: .NET Framework
-# ═══════════════════════════════════════════════════════════════
 def check_dotnet() -> dict:
     try:
         out = _run_ps(
             "Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\NET Framework Setup\\NDP' "
-            "-ErrorAction SilentlyContinue | Select-Object -ExpandProperty PSChildName"
+            "-ErrorAction SilentlyContinue | "
+            "Select-Object -ExpandProperty PSChildName"
         )
         if out:
             versions = [v for v in out.split("\n") if v.strip()]
-            return {
-                "id": "dotnet", "status": "ok",
-                "name": ".NET Framework",
-                "detail": f"✅ {len(versions)} Versionen installiert "
-                          f"({', '.join(versions[-3:])})",
-                "fix": None,
-            }
+            return {"id": "dotnet", "status": "ok",
+                    "name": ".NET Framework",
+                    "detail": f"✅ {len(versions)} Versionen installiert "
+                              f"({', '.join(versions[-3:])})",
+                    "fix": None}
         return {"id": "dotnet", "status": "warn",
                 "name": ".NET Framework",
-                "detail": "Keine Version gefunden",
-                "fix": None}
+                "detail": "Keine Version gefunden", "fix": None}
     except Exception as e:
         return {"id": "dotnet", "status": "warn",
                 "name": ".NET Framework",
                 "detail": f"Fehler: {e}", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHECK 7: Visual C++ Redistributables
-# ═══════════════════════════════════════════════════════════════
 def check_vcredist() -> dict:
     try:
         out = _run_ps(
@@ -327,9 +272,6 @@ def check_vcredist() -> dict:
                 "detail": f"Fehler: {e}", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHECK 8: Treiber-Probleme (Geräte-Manager)
-# ═══════════════════════════════════════════════════════════════
 def check_driver_problems() -> dict:
     try:
         out = _run_ps(
@@ -342,8 +284,7 @@ def check_driver_problems() -> dict:
         if count == 0:
             return {"id": "drivers", "status": "ok",
                     "name": "Treiber-Probleme",
-                    "detail": "✅ Keine Probleme erkannt",
-                    "fix": None}
+                    "detail": "✅ Keine Probleme erkannt", "fix": None}
         return {"id": "drivers", "status": "error",
                 "name": "Treiber-Probleme",
                 "detail": f"⚠️  {count} Geräte mit Problemen",
@@ -354,9 +295,6 @@ def check_driver_problems() -> dict:
                 "detail": f"Fehler: {e}", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHECK 9: Temp-Ordner Größe
-# ═══════════════════════════════════════════════════════════════
 def check_temp_size() -> dict:
     try:
         import tempfile
@@ -391,9 +329,6 @@ def check_temp_size() -> dict:
                 "detail": f"Fehler: {e}", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHECK 10: Autostart-Anzahl
-# ═══════════════════════════════════════════════════════════════
 def check_autostart_count() -> dict:
     try:
         count = 0
@@ -434,9 +369,6 @@ def check_autostart_count() -> dict:
                 "detail": f"Fehler: {e}", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHECK 11: SMART-Status (Disk Health)
-# ═══════════════════════════════════════════════════════════════
 def check_smart_status() -> dict:
     try:
         out = _run_ps(
@@ -448,8 +380,7 @@ def check_smart_status() -> dict:
         if not out:
             return {"id": "smart", "status": "warn",
                     "name": "Disk-Gesundheit (SMART)",
-                    "detail": "Status nicht abrufbar",
-                    "fix": None}
+                    "detail": "Status nicht abrufbar", "fix": None}
 
         import json
         data = json.loads(out)
@@ -467,21 +398,16 @@ def check_smart_status() -> dict:
         if not problems:
             return {"id": "smart", "status": "ok",
                     "name": "Disk-Gesundheit (SMART)",
-                    "detail": f"✅ {len(data)} Disks gesund",
-                    "fix": None}
+                    "detail": f"✅ {len(data)} Disks gesund", "fix": None}
         return {"id": "smart", "status": "error",
                 "name": "Disk-Gesundheit (SMART)",
-                "detail": "⚠️  " + "  ·  ".join(problems[:3]),
-                "fix": None}
+                "detail": "⚠️  " + "  ·  ".join(problems[:3]), "fix": None}
     except Exception as e:
         return {"id": "smart", "status": "warn",
                 "name": "Disk-Gesundheit (SMART)",
                 "detail": f"Fehler: {e}", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHECK 12: BitLocker-Status
-# ═══════════════════════════════════════════════════════════════
 def check_bitlocker() -> dict:
     try:
         out = _run_ps(
@@ -492,8 +418,7 @@ def check_bitlocker() -> dict:
         if not out or "null" in out.lower():
             return {"id": "bitlocker", "status": "warn",
                     "name": "BitLocker",
-                    "detail": "Status nicht abrufbar (kein TPM oder Admin nötig)",
-                    "fix": None}
+                    "detail": "Nicht verfügbar (Home-Edition?)", "fix": None}
 
         import json
         data = json.loads(out)
@@ -505,8 +430,7 @@ def check_bitlocker() -> dict:
         if status == "On":
             return {"id": "bitlocker", "status": "ok",
                     "name": "BitLocker (C:)",
-                    "detail": "✅ Aktiviert",
-                    "fix": None}
+                    "detail": "✅ Aktiviert", "fix": None}
         return {"id": "bitlocker", "status": "warn",
                 "name": "BitLocker (C:)",
                 "detail": "⚠️  Aus — Festplatte nicht verschlüsselt",
@@ -514,13 +438,9 @@ def check_bitlocker() -> dict:
     except Exception:
         return {"id": "bitlocker", "status": "warn",
                 "name": "BitLocker (C:)",
-                "detail": "Nicht verfügbar (Home-Edition?)",
-                "fix": None}
+                "detail": "Nicht verfügbar (Home-Edition?)", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# CHECK 13: DNS-Konfiguration
-# ═══════════════════════════════════════════════════════════════
 def check_dns() -> dict:
     try:
         out = _run_ps(
@@ -531,8 +451,7 @@ def check_dns() -> dict:
         if not out:
             return {"id": "dns", "status": "warn",
                     "name": "DNS-Server",
-                    "detail": "Keine DNS-Server konfiguriert",
-                    "fix": None}
+                    "detail": "Keine DNS-Server konfiguriert", "fix": None}
 
         servers = [s.strip() for s in out.split("\n") if s.strip()]
         return {"id": "dns", "status": "ok",
@@ -546,8 +465,6 @@ def check_dns() -> dict:
                 "detail": f"Fehler: {e}", "fix": None}
 
 
-# ═══════════════════════════════════════════════════════════════
-# ALLE CHECKS AUSFÜHREN
 # ═══════════════════════════════════════════════════════════════
 ALL_CHECKS = [
     check_windows_version,
@@ -567,7 +484,6 @@ ALL_CHECKS = [
 
 
 def run_all_checks(progress_cb=None) -> dict:
-    """Führt alle Checks aus. Returns dict mit Ergebnis + Score."""
     results = []
     total = len(ALL_CHECKS)
 
@@ -578,13 +494,10 @@ def run_all_checks(progress_cb=None) -> dict:
         try:
             r = check_fn()
         except Exception as e:
-            r = {
-                "id": check_fn.__name__, "status": "error",
-                "name": name, "detail": f"Fehler: {e}", "fix": None,
-            }
+            r = {"id": check_fn.__name__, "status": "error",
+                 "name": name, "detail": f"Fehler: {e}", "fix": None}
         results.append(r)
 
-    # Score berechnen
     weights = {"ok": 100, "warn": 50, "error": 0}
     if results:
         score = int(sum(weights.get(r["status"], 0) for r in results)

@@ -1,4 +1,4 @@
-"""Passwort-Manager mit Vault, Leak-Check und Generator."""
+"""Passwort-Manager — mit Toasts."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QApplication,
@@ -6,19 +6,17 @@ from PyQt6.QtWidgets import (
     QHeaderView, QMessageBox, QDialog, QFormLayout, QComboBox,
     QAbstractItemView, QInputDialog, QTextEdit
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 
-from src.ui.widgets import Card, PageHeader
+from src.ui.widgets import Card, PageHeader, EmptyState
 from src.ui.theme import Colors, FONT_MONO
+from src.ui.toast import toast
 from src.modules.password_checker import (
     check_password, generate_password, password_strength
 )
 from src.modules.vault import vault
 
 
-# ═══════════════════════════════════════════════════════════════
-# WORKER
-# ═══════════════════════════════════════════════════════════════
 class CheckWorker(QThread):
     finished_signal = pyqtSignal(dict)
 
@@ -35,7 +33,7 @@ class CheckWorker(QThread):
 
 
 # ═══════════════════════════════════════════════════════════════
-# DETAIL-DIALOG (Passwort ansehen)
+# DETAIL-DIALOG
 # ═══════════════════════════════════════════════════════════════
 class DetailDialog(QDialog):
     def __init__(self, parent, entry: dict):
@@ -48,10 +46,9 @@ class DetailDialog(QDialog):
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(16)
 
-        # Titel
         title = QLabel(entry.get("name", "?"))
         title.setStyleSheet(
-            f"font-size: 22px; font-weight: 800; color: {Colors.ACCENT};"
+            f"color: {Colors.ACCENT}; font-size: 22px; font-weight: 800;"
         )
         layout.addWidget(title)
 
@@ -63,7 +60,7 @@ class DetailDialog(QDialog):
 
         layout.addSpacing(8)
 
-        # ─── Benutzername ───
+        # Benutzername
         layout.addWidget(self._field_label("Benutzername"))
         user_row = QHBoxLayout()
         user_field = QLineEdit(entry.get("username", ""))
@@ -73,14 +70,13 @@ class DetailDialog(QDialog):
         copy_user = QPushButton("📋")
         copy_user.setFixedWidth(50)
         copy_user.setMinimumHeight(40)
-        copy_user.setToolTip("Kopieren")
         copy_user.clicked.connect(
             lambda: self._copy(entry.get("username", ""), "Benutzername")
         )
         user_row.addWidget(copy_user)
         layout.addLayout(user_row)
 
-        # ─── Passwort ───
+        # Passwort
         layout.addWidget(self._field_label("Passwort"))
         pw_row = QHBoxLayout()
 
@@ -97,21 +93,18 @@ class DetailDialog(QDialog):
         self.toggle_btn.setFixedWidth(50)
         self.toggle_btn.setMinimumHeight(40)
         self.toggle_btn.setCheckable(True)
-        self.toggle_btn.setToolTip("Passwort anzeigen/verstecken")
         self.toggle_btn.clicked.connect(self._toggle_pw)
         pw_row.addWidget(self.toggle_btn)
 
         copy_pw = QPushButton("📋")
         copy_pw.setFixedWidth(50)
         copy_pw.setMinimumHeight(40)
-        copy_pw.setToolTip("Kopieren")
         copy_pw.clicked.connect(
             lambda: self._copy(entry.get("password", ""), "Passwort")
         )
         pw_row.addWidget(copy_pw)
         layout.addLayout(pw_row)
 
-        # ─── URL ───
         if entry.get("url"):
             layout.addWidget(self._field_label("URL"))
             url_row = QHBoxLayout()
@@ -128,7 +121,6 @@ class DetailDialog(QDialog):
             url_row.addWidget(copy_url)
             layout.addLayout(url_row)
 
-        # ─── Notizen ───
         if entry.get("notes"):
             layout.addWidget(self._field_label("Notizen"))
             notes = QTextEdit(entry["notes"])
@@ -136,7 +128,6 @@ class DetailDialog(QDialog):
             notes.setMaximumHeight(80)
             layout.addWidget(notes)
 
-        # ─── Meta ───
         meta = QLabel(
             f"Erstellt: {entry.get('created', '?')[:19]}   ·   "
             f"Geändert: {entry.get('modified', '?')[:19]}"
@@ -148,15 +139,12 @@ class DetailDialog(QDialog):
 
         layout.addSpacing(8)
 
-        # ─── Buttons ───
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-
         close_btn = QPushButton("Schließen")
         close_btn.setObjectName("SecondaryButton")
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)
-
         layout.addLayout(btn_row)
 
     def _field_label(self, text: str) -> QLabel:
@@ -178,15 +166,11 @@ class DetailDialog(QDialog):
     def _copy(self, text: str, what: str):
         if text:
             QApplication.clipboard().setText(text)
-            self.setWindowTitle(f"✅ {what} kopiert!")
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(1500, lambda: self.setWindowTitle(
-                f"🔑  {self.entry.get('name', '?')}"
-            ))
+            toast.success(f"{what} kopiert")
 
 
 # ═══════════════════════════════════════════════════════════════
-# ENTRY-DIALOG (Bearbeiten / Neu)
+# ENTRY-DIALOG
 # ═══════════════════════════════════════════════════════════════
 class EntryDialog(QDialog):
     def __init__(self, parent=None, entry: dict = None):
@@ -224,7 +208,6 @@ class EntryDialog(QDialog):
         self.show_btn = QPushButton("👁")
         self.show_btn.setFixedWidth(40)
         self.show_btn.setCheckable(True)
-        self.show_btn.setToolTip("Anzeigen/Verstecken")
         self.show_btn.clicked.connect(self._toggle_show)
         pw_row.addWidget(self.show_btn)
         form.addRow("Passwort:", pw_row)
@@ -314,16 +297,12 @@ class PasswordPage(QWidget):
         layout.addStretch()
         self._update_vault_ui()
 
-    # ═══════════════════════════════════════════════════════
-    # TAB 1: MANAGER
-    # ═══════════════════════════════════════════════════════
     def _build_manager_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(8, 16, 8, 8)
         layout.setSpacing(12)
 
-        # Suche + Add
         top_row = QHBoxLayout()
         top_row.setSpacing(10)
 
@@ -339,10 +318,8 @@ class PasswordPage(QWidget):
         add_btn.setMinimumHeight(40)
         add_btn.clicked.connect(self._add_entry)
         top_row.addWidget(add_btn)
-
         layout.addLayout(top_row)
 
-        # Tabelle
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
             ["Name", "Benutzername", "Passwort", "Kategorie", "URL", ""]
@@ -367,12 +344,10 @@ class PasswordPage(QWidget):
         h.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(5, 130)
 
-        # Doppelklick → Detail-Dialog
         self.table.doubleClicked.connect(self._open_detail)
         self.table.setMinimumHeight(320)
         layout.addWidget(self.table)
 
-        # Action-Zeile
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
 
@@ -382,12 +357,11 @@ class PasswordPage(QWidget):
 
         action_row.addStretch()
 
-        info_lbl = QLabel("Doppelklick = Details & Passwort ansehen")
+        info_lbl = QLabel("Doppelklick = Details")
         info_lbl.setStyleSheet(
             f"color: {Colors.TEXT_MUTED}; font-size: 11px;"
         )
         action_row.addWidget(info_lbl)
-
         action_row.addSpacing(12)
 
         edit_btn = QPushButton("✏️ Bearbeiten")
@@ -415,37 +389,27 @@ class PasswordPage(QWidget):
         self.table.setRowCount(len(entries))
 
         for row, e in enumerate(entries):
-            # Name
             name_item = QTableWidgetItem(e.get("name", ""))
             name_item.setData(Qt.ItemDataRole.UserRole, e.get("id"))
             self.table.setItem(row, 0, name_item)
 
-            # Benutzer
             self.table.setItem(
                 row, 1, QTableWidgetItem(e.get("username", ""))
             )
 
-            # Passwort (versteckt oder sichtbar)
             pw = e.get("password", "")
-            if self._show_passwords:
-                pw_display = pw
-            else:
-                pw_display = "●" * min(len(pw), 12)
+            pw_display = pw if self._show_passwords else "●" * min(len(pw), 12)
             pw_item = QTableWidgetItem(pw_display)
             pw_item.setData(Qt.ItemDataRole.UserRole + 1, pw)
             self.table.setItem(row, 2, pw_item)
 
-            # Kategorie
             self.table.setItem(
                 row, 3, QTableWidgetItem(e.get("category", ""))
             )
-
-            # URL
             self.table.setItem(
                 row, 4, QTableWidgetItem(e.get("url", ""))
             )
 
-            # ─── Buttons-Spalte ───
             btn_widget = QWidget()
             btn_layout = QHBoxLayout(btn_widget)
             btn_layout.setContentsMargins(2, 2, 2, 2)
@@ -453,7 +417,6 @@ class PasswordPage(QWidget):
 
             view_btn = QPushButton("👁")
             view_btn.setFixedSize(32, 32)
-            view_btn.setToolTip("Details anzeigen")
             view_btn.setObjectName("SecondaryButton")
             eid = e.get("id")
             view_btn.clicked.connect(
@@ -463,17 +426,21 @@ class PasswordPage(QWidget):
 
             copy_btn = QPushButton("📋")
             copy_btn.setFixedSize(32, 32)
-            copy_btn.setToolTip("Passwort kopieren")
             copy_btn.setObjectName("SecondaryButton")
             pw_val = e.get("password", "")
             copy_btn.clicked.connect(
-                lambda _, p=pw_val: QApplication.clipboard().setText(p)
+                lambda _, p=pw_val: self._copy_pw(p)
             )
             btn_layout.addWidget(copy_btn)
 
             self.table.setCellWidget(row, 5, btn_widget)
 
         self.table.setSortingEnabled(True)
+
+    def _copy_pw(self, pw: str):
+        if pw:
+            QApplication.clipboard().setText(pw)
+            toast.success("Passwort kopiert")
 
     def _filter_entries(self, text: str):
         text = text.lower()
@@ -512,28 +479,26 @@ class PasswordPage(QWidget):
 
     def _add_entry(self):
         if not vault.is_unlocked():
-            QMessageBox.warning(
-                self, "Vault gesperrt",
-                "Bitte entsperre zuerst den Vault "
-                "(Tab 'Vault-Einstellungen')."
-            )
+            toast.warning("Bitte entsperre zuerst den Vault")
             return
 
         dlg = EntryDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             data = dlg.get_data()
             if not data["name"]:
-                QMessageBox.warning(self, "Fehler", "Name ist erforderlich")
+                toast.warning("Name ist erforderlich")
                 return
             ok, msg = vault.add(**data)
             if ok:
+                toast.success(f"'{data['name']}' gespeichert")
                 self._refresh_table()
             else:
-                QMessageBox.warning(self, "Fehler", msg)
+                toast.error(f"Fehler: {msg}")
 
     def _edit_entry(self):
         eid = self._get_selected_id()
         if not eid:
+            toast.warning("Bitte erst Eintrag auswählen")
             return
         entry = None
         for e in vault.get_all():
@@ -547,11 +512,13 @@ class PasswordPage(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             data = dlg.get_data()
             vault.update(eid, **data)
+            toast.success("Eintrag aktualisiert")
             self._refresh_table()
 
     def _delete_entry(self):
         eid = self._get_selected_id()
         if not eid:
+            toast.warning("Bitte erst Eintrag auswählen")
             return
         reply = QMessageBox.question(
             self, "Löschen",
@@ -560,11 +527,9 @@ class PasswordPage(QWidget):
         )
         if reply == QMessageBox.StandardButton.Yes:
             vault.delete(eid)
+            toast.success("Eintrag gelöscht")
             self._refresh_table()
 
-    # ═══════════════════════════════════════════════════════
-    # TAB 2: LEAK-CHECK
-    # ═══════════════════════════════════════════════════════
     def _build_leak_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
@@ -622,7 +587,6 @@ class PasswordPage(QWidget):
         self.leak_btn.setMinimumHeight(40)
         self.leak_btn.clicked.connect(self._do_leak_check)
         btn_row.addWidget(self.leak_btn)
-
         check_card.add_widget_direct(btn_row)
         layout.addWidget(check_card)
 
@@ -664,21 +628,23 @@ class PasswordPage(QWidget):
         )
         self.gen_out.setPlaceholderText("— noch nichts generiert —")
         gen_card.add(self.gen_out)
-
         gen_card.add_spacing(4)
 
         copy_btn = QPushButton("📋 In Zwischenablage kopieren")
         copy_btn.setObjectName("SecondaryButton")
         copy_btn.setMinimumHeight(38)
-        copy_btn.clicked.connect(
-            lambda: QApplication.clipboard().setText(self.gen_out.text())
-            if self.gen_out.text() else None
-        )
+        copy_btn.clicked.connect(self._copy_gen)
         gen_card.add(copy_btn)
 
         layout.addWidget(gen_card)
         layout.addStretch()
         return w
+
+    def _copy_gen(self):
+        text = self.gen_out.text()
+        if text:
+            QApplication.clipboard().setText(text)
+            toast.success("Passwort kopiert")
 
     def _on_leak_text_changed(self, text):
         if not text:
@@ -700,8 +666,7 @@ class PasswordPage(QWidget):
     def _do_leak_check(self):
         pw = self.leak_input.text()
         if not pw:
-            self.leak_result.clear()
-            self.leak_result.addItem("ℹ️  Bitte erst ein Passwort eingeben.")
+            toast.warning("Bitte erst ein Passwort eingeben")
             return
         if self._worker and self._worker.isRunning():
             return
@@ -720,30 +685,25 @@ class PasswordPage(QWidget):
         self.leak_result.clear()
 
         if result.get("error"):
+            toast.error(f"Fehler: {result['error']}")
             self.leak_result.addItem(f"❌ Fehler: {result['error']}")
             return
 
         if result.get("pwned"):
             count = result.get("count", 0)
-            item = QListWidgetItem(
-                f"🚨  GEFUNDEN in {count:,} Datenlecks!  →  sofort ändern!"
+            self.leak_result.addItem(
+                f"🚨 GEFUNDEN in {count:,} Datenlecks! → sofort ändern!"
             )
-            item.setForeground(Qt.GlobalColor.red)
-            self.leak_result.addItem(item)
+            toast.error(f"Passwort in {count:,} Lecks gefunden!")
         else:
-            item = QListWidgetItem(
-                "✅  NICHT gefunden — Passwort ist sicher."
-            )
-            item.setForeground(Qt.GlobalColor.green)
-            self.leak_result.addItem(item)
+            self.leak_result.addItem("✅ NICHT gefunden — Passwort ist sicher.")
+            toast.success("Passwort ist sicher")
 
     def _do_generate(self):
         pw = generate_password(self.gen_len.value(), self.gen_sym.isChecked())
         self.gen_out.setText(pw)
+        toast.info("Passwort generiert")
 
-    # ═══════════════════════════════════════════════════════
-    # TAB 3: VAULT-EINSTELLUNGEN
-    # ═══════════════════════════════════════════════════════
     def _build_vault_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
@@ -780,7 +740,6 @@ class PasswordPage(QWidget):
         self.lock_btn.setMinimumHeight(42)
         self.lock_btn.clicked.connect(self._lock_vault)
         row1.addWidget(self.lock_btn)
-
         row1.addStretch()
         action_card.add_widget_direct(row1)
 
@@ -794,7 +753,6 @@ class PasswordPage(QWidget):
         change_btn.setMinimumHeight(42)
         change_btn.clicked.connect(self._change_master)
         row2.addWidget(change_btn)
-
         row2.addStretch()
 
         delete_btn = QPushButton("💥 Vault löschen")
@@ -802,7 +760,6 @@ class PasswordPage(QWidget):
         delete_btn.setMinimumHeight(42)
         delete_btn.clicked.connect(self._delete_vault)
         row2.addWidget(delete_btn)
-
         action_card.add_widget_direct(row2)
 
         layout.addWidget(action_card)
@@ -820,9 +777,7 @@ class PasswordPage(QWidget):
         if not initialized:
             self.vault_status_lbl.setText(
                 "⚠️  <b>Kein Vault vorhanden.</b><br>"
-                "Klicke auf 'Vault erstellen' um ein Master-Passwort "
-                "zu setzen.<br>"
-                "Deine Passwörter werden mit AES-256 verschlüsselt."
+                "Klicke auf 'Vault erstellen' um ein Master-Passwort zu setzen."
             )
             self.create_btn.setEnabled(True)
             self.unlock_btn.setEnabled(False)
@@ -830,8 +785,7 @@ class PasswordPage(QWidget):
         elif not unlocked:
             self.vault_status_lbl.setText(
                 "🔒  <b>Vault vorhanden, aber gesperrt.</b><br>"
-                "Klicke auf 'Vault entsperren' und gib dein "
-                "Master-Passwort ein."
+                "Klicke auf 'Vault entsperren'."
             )
             self.create_btn.setEnabled(False)
             self.unlock_btn.setEnabled(True)
@@ -861,20 +815,14 @@ class PasswordPage(QWidget):
             QLineEdit.EchoMode.Password
         )
         if not ok2 or pw != pw2:
-            QMessageBox.warning(
-                self, "Fehler", "Passwörter stimmen nicht überein"
-            )
+            toast.error("Passwörter stimmen nicht überein")
             return
 
         ok, msg = vault.create(pw)
         if ok:
-            QMessageBox.information(
-                self, "Erfolg",
-                "Vault erstellt! Merke dir dein Master-Passwort — "
-                "es kann NICHT wiederhergestellt werden."
-            )
+            toast.success("Vault erstellt")
         else:
-            QMessageBox.warning(self, "Fehler", msg)
+            toast.error(msg)
         self._update_vault_ui()
 
     def _unlock_vault(self):
@@ -887,11 +835,14 @@ class PasswordPage(QWidget):
             return
         ok, msg = vault.unlock(pw)
         if not ok:
-            QMessageBox.warning(self, "Fehler", msg)
+            toast.error(msg)
+        else:
+            toast.success("Vault entsperrt")
         self._update_vault_ui()
 
     def _lock_vault(self):
         vault.lock()
+        toast.info("Vault gesperrt")
         self._update_vault_ui()
 
     def _change_master(self):
@@ -908,7 +859,7 @@ class PasswordPage(QWidget):
         v2 = type(vault)()
         success, msg = v2.unlock(old)
         if not success:
-            QMessageBox.warning(self, "Fehler", "Altes Passwort falsch")
+            toast.error("Altes Passwort falsch")
             return
 
         new, ok = QInputDialog.getText(
@@ -920,7 +871,6 @@ class PasswordPage(QWidget):
             return
 
         entries = vault.get_all()
-
         from src.modules.vault import VAULT_FILE, META_FILE, _derive_key
         import secrets, base64, json
         from cryptography.fernet import Fernet
@@ -937,10 +887,7 @@ class PasswordPage(QWidget):
             "version": 1,
         }, indent=2), encoding="utf-8")
 
-        QMessageBox.information(
-            self, "Erfolg",
-            "Master-Passwort geändert! Nächster Unlock braucht das neue."
-        )
+        toast.success("Master-Passwort geändert")
         vault.lock()
         self._update_vault_ui()
 
@@ -965,6 +912,4 @@ class PasswordPage(QWidget):
         vault.lock()
         self._refresh_table()
         self._update_vault_ui()
-        QMessageBox.information(
-            self, "Gelöscht", "Vault wurde gelöscht."
-        )
+        toast.success

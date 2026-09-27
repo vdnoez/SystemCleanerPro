@@ -1,5 +1,6 @@
-"""Entry point — startet als Admin, prüft Updates."""
+"""Entry point — Admin-Start, Auto-Update."""
 import sys
+import os
 import ctypes
 from pathlib import Path
 
@@ -7,8 +8,37 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
+# ═══════════════════════════════════════════════════════════════
+# RAM-CLEANER HELPER-MODUS
+# ═══════════════════════════════════════════════════════════════
+def _run_ram_cleaner_helper():
+    try:
+        from src.modules.ram_cleaner import _worker_run
+        import json
+        result = _worker_run()
+        result_file = os.environ.get("RAM_CLEANER_RESULT_FILE")
+        if result_file:
+            try:
+                Path(result_file).write_text(
+                    json.dumps(result), encoding="utf-8"
+                )
+            except Exception:
+                pass
+        print(json.dumps(result))
+    except Exception as e:
+        try:
+            print(f'{{"success": false, "error": "{e}"}}')
+        except Exception:
+            pass
+    sys.exit(0)
+
+
+if "--ram-cleaner-helper" in sys.argv:
+    _run_ram_cleaner_helper()
+
+
+# ═══════════════════════════════════════════════════════════════
 def is_admin() -> bool:
-    """Prüft ob App als Admin läuft."""
     try:
         return ctypes.windll.shell32.IsUserAnAdmin() != 0
     except Exception:
@@ -16,18 +46,13 @@ def is_admin() -> bool:
 
 
 def run_as_admin():
-    """Startet die App neu mit Admin-Rechten."""
     try:
         script = str(Path(sys.argv[0]).resolve())
         params = " ".join(sys.argv[1:])
-
         ret = ctypes.windll.shell32.ShellExecuteW(
-            None,
-            "runas",
-            sys.executable,
+            None, "runas", sys.executable,
             f'"{script}" {params}',
-            str(PROJECT_ROOT),
-            1
+            str(PROJECT_ROOT), 1
         )
         return ret > 32
     except Exception as e:
@@ -35,16 +60,29 @@ def run_as_admin():
         return False
 
 
+def _cleanup_temp_on_start():
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        from src.modules.cleanup_temp import cleanup_old_mei
+        removed = cleanup_old_mei(max_age_hours=6)
+        if removed > 0:
+            print(f"[Cleanup] {removed} alte _MEI-Ordner gelöscht")
+    except Exception:
+        pass
+
+
+# ═══════════════════════════════════════════════════════════════
 def main():
-    # ─── Admin-Check ───
     if not is_admin():
         print("Starte mit Administrator-Rechten...")
         if run_as_admin():
             sys.exit(0)
         else:
-            print("⚠️  Admin-Start abgelehnt — starte normal")
+            print("⚠️  Admin-Start abgelehnt")
 
-    # ─── Ab hier normale App ───
+    _cleanup_temp_on_start()
+
     from PyQt6.QtWidgets import QApplication, QMessageBox
     from PyQt6.QtCore import QTimer
 
@@ -55,50 +93,38 @@ def main():
     app.setApplicationVersion(APP_VERSION)
     app.setQuitOnLastWindowClosed(False)
 
-    # Theme laden
     from src.ui.settings_dialog import load_settings
     from src.ui.theme import set_theme
     settings = load_settings()
-    set_theme(settings.get("theme", "aurora"))
+    set_theme(settings.get("theme", "slate"))
 
-    # ─── Auto-Update-Check ───
+    # Auto-Update-Check
     if settings.get("auto_check_updates", True):
         try:
             from src.modules.updater import check_for_update
             print("[Auto-Update] Prüfe auf neue Version...")
             update_info = check_for_update(timeout=8)
-
             if update_info.get("update_available"):
                 msg = QMessageBox()
                 msg.setWindowTitle("Update verfügbar")
                 msg.setIcon(QMessageBox.Icon.Information)
                 msg.setText(
-                    f"Eine neue Version ist verfügbar!\n\n"
+                    f"Neue Version verfügbar!\n\n"
                     f"Aktuell:  v{update_info['current_version']}\n"
-                    f"Neu:       v{update_info['latest_version']}\n\n"
-                    f"Möchtest du jetzt updaten?"
+                    f"Neu:       v{update_info['latest_version']}"
                 )
                 msg.setStandardButtons(
                     QMessageBox.StandardButton.Yes |
                     QMessageBox.StandardButton.No
                 )
-                msg.setDefaultButton(QMessageBox.StandardButton.Yes)
-
-                reply = msg.exec()
-
-                if reply == QMessageBox.StandardButton.Yes:
-                    # Merken → Update-Seite öffnen
+                if msg.exec() == QMessageBox.StandardButton.Yes:
                     app.setProperty("open_update_page", True)
             elif update_info.get("error"):
                 print(f"[Auto-Update] {update_info['error']}")
-            else:
-                print(
-                    f"[Auto-Update] Aktuell: v{update_info['current_version']}"
-                )
         except Exception as e:
             print(f"[Auto-Update] Fehler: {e}")
 
-    # ─── Splash oder direkt ───
+    # Splash oder direkt
     if settings.get("show_splash", True):
         try:
             from src.ui.splash import SplashScreen
@@ -118,14 +144,11 @@ def main():
                     from src.ui.main_window import MainWindow
                     window = MainWindow()
                     window.show()
-
-                    # Update-Seite öffnen falls Update verfügbar
                     if app.property("open_update_page"):
                         try:
                             window.open_update_page()
                         except Exception:
                             pass
-
                     try:
                         splash.finish(window)
                     except Exception:
@@ -139,15 +162,9 @@ def main():
             fallback.timeout.connect(launch_main)
             fallback.start(8000)
         except Exception as e:
-            print(f"[Splash-Fehler] {e} — starte direkt")
+            print(f"[Splash-Fehler] {e}")
             from src.ui.main_window import MainWindow
-            window = MainWindow()
-            window.show()
-            if app.property("open_update_page"):
-                try:
-                    window.open_update_page()
-                except Exception:
-                    pass
+            MainWindow().show()
     else:
         from src.ui.main_window import MainWindow
         window = MainWindow()

@@ -1,6 +1,6 @@
 """
-System Cleaner Pro - EXE Builder
-Erstellt eine standalone .exe mit allen Features.
+System Cleaner Pro - EXE Builder (ONE-FOLDER MODE)
+Keine Temp-Warnings, sauberer Start.
 """
 import subprocess
 import sys
@@ -17,7 +17,7 @@ DATA_SEP = ";" if sys.platform == "win32" else ":"
 
 
 def clean():
-    print("[1/6] Räume auf...")
+    print("[1/5] Räume auf...")
     for d in (DIST, BUILD):
         if d.exists():
             shutil.rmtree(d, ignore_errors=True)
@@ -26,7 +26,7 @@ def clean():
 
 
 def install_pyinstaller():
-    print("[2/6] Prüfe PyInstaller...")
+    print("[2/5] Prüfe PyInstaller...")
     try:
         import PyInstaller  # noqa
         print("      ✅ PyInstaller vorhanden.")
@@ -39,15 +39,10 @@ def install_pyinstaller():
 
 
 def install_missing_deps():
-    print("[3/6] Prüfe Abhängigkeiten...")
+    print("[3/5] Prüfe Abhängigkeiten...")
     deps = [
-        "qtawesome",
-        "cryptography",
-        "send2trash",
-        "psutil",
-        "pywin32",
-        "wmi",
-        "requests",
+        "qtawesome", "cryptography", "send2trash",
+        "psutil", "pywin32", "wmi", "requests", "certifi",
     ]
     for dep in deps:
         try:
@@ -61,17 +56,19 @@ def install_missing_deps():
 
 
 def build():
-    print("[4/6] Baue EXE (dauert 2-5 Minuten)...")
-    print("      Bitte warten, keine Eingabe nötig.")
+    print("[4/5] Baue EXE im ONE-FOLDER-Modus (dauert 2-4 Minuten)...")
+    print("      Bitte warten.")
     print()
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm",
         "--clean",
-        "--windowed",                          # keine Konsole
+        # KEIN --onefile! → One-Folder-Modus
+        "--windowed",                           # keine Konsole
         "--name", EXE_NAME,
-        "--add-data", f"data{DATA_SEP}data",   # data/ neben EXE
+        "--add-data", f"data{DATA_SEP}data",
+        "--add-data", f"version.txt{DATA_SEP}.",
         # Hidden Imports
         "--hidden-import", "winreg",
         "--hidden-import", "wmi",
@@ -81,11 +78,14 @@ def build():
         "--hidden-import", "cryptography.fernet",
         "--hidden-import", "cryptography.hazmat.primitives.hashes",
         "--hidden-import", "cryptography.hazmat.primitives.kdf.pbkdf2",
-        # PyQt6 komplett einsammeln
+        "--hidden-import", "certifi",
+        # Collect-All
         "--collect-all", "PyQt6",
         "--collect-all", "qtawesome",
         "--collect-all", "send2trash",
-        # Exclude unnötige Riesen-Module
+        "--collect-all", "certifi",
+        "--collect-data", "certifi",
+        # Excludes
         "--exclude-module", "matplotlib",
         "--exclude-module", "numpy",
         "--exclude-module", "pandas",
@@ -100,50 +100,67 @@ def build():
     subprocess.run(cmd, cwd=ROOT, check=True)
 
 
-def copy_data_folder():
-    """Kopiert data/ neben die EXE für editierbare Configs."""
-    print("[5/6] Kopiere data/-Ordner neben EXE...")
-    src = ROOT / "data"
-    dst = DIST / "data"
+def copy_extras():
+    """Kopiert version.txt + data/ in den App-Ordner."""
+    print("[5/5] Kopiere Zusatzdateien...")
 
-    if not src.exists():
-        print("      ⚠️  data/ fehlt — erstelle leeren Ordner")
-        dst.mkdir(parents=True, exist_ok=True)
+    app_dir = DIST / EXE_NAME  # dist/SystemCleanerPro/
+
+    if not app_dir.exists():
+        print(f"      ⚠️  {app_dir} fehlt!")
         return
 
-    if dst.exists():
-        shutil.rmtree(dst, ignore_errors=True)
-    shutil.copytree(src, dst)
-    print(f"      ✅ {dst}")
+    # version.txt
+    src_version = ROOT / "version.txt"
+    if src_version.exists():
+        shutil.copy2(src_version, app_dir / "version.txt")
+        print(f"      ✅ version.txt → {app_dir}")
+
+    # data/
+    src_data = ROOT / "data"
+    dst_data = app_dir / "data"
+    if src_data.exists():
+        if dst_data.exists():
+            shutil.rmtree(dst_data, ignore_errors=True)
+        shutil.copytree(src_data, dst_data)
+        print(f"      ✅ data/ → {app_dir}")
 
 
 def report():
-    print("[6/6] Fertig!")
-    exe = DIST / f"{EXE_NAME}.exe"
+    print()
+    print("=" * 60)
+    print("  ✅ BUILD ERFOLGREICH")
+    print("=" * 60)
+
+    app_dir = DIST / EXE_NAME
+    exe = app_dir / f"{EXE_NAME}.exe"
+
     if exe.exists():
-        size_mb = exe.stat().st_size / (1024 * 1024)
-        print()
-        print("=" * 60)
-        print("  ✅ EXE ERFOLGREICH ERSTELLT")
-        print("=" * 60)
-        print(f"  📁 Pfad:   {exe}")
-        print(f"  📊 Größe:  {size_mb:.1f} MB")
-        print()
-        print(f"  📂 Configs: {DIST / 'data'}")
-        print()
-        print("  🚀 Doppelklick auf die EXE zum Starten!")
-        print()
-        print("  ⚠️  WICHTIG: Der 'data'-Ordner muss IMMER")
-        print("      neben der EXE liegen, sonst findet die App")
-        print("      ihre Einstellungen nicht.")
+        print(f"  📁 App-Ordner:  {app_dir}")
+        print(f"  📁 EXE:         {exe}")
+
+        # Gesamtgröße
+        total = sum(f.stat().st_size for f in app_dir.rglob("*") if f.is_file())
+        print(f"  📊 Gesamtgröße: {total / (1024*1024):.1f} MB")
     else:
-        print("❌ EXE nicht gefunden — Build fehlgeschlagen.")
-        sys.exit(1)
+        print(f"  ❌ EXE fehlt: {exe}")
+
+    version_file = app_dir / "version.txt"
+    if version_file.exists():
+        version = version_file.read_text(encoding="utf-8").strip()
+        print(f"  🏷️  Version:     {version}")
+
+    print()
+    print("  🚀 Starten mit:")
+    print(f"      {exe}")
+    print()
+    print("  ℹ️  Der Ordner 'dist/SystemCleanerPro' muss")
+    print("      KOMPLETT weitergegeben werden (EXE + _internal/ + data/).")
 
 
 def main():
     print("=" * 60)
-    print(f"  {EXE_NAME} - EXE Builder")
+    print(f"  {EXE_NAME} - EXE Builder (ONE-FOLDER)")
     print("=" * 60)
     print()
 
@@ -151,7 +168,7 @@ def main():
     install_pyinstaller()
     install_missing_deps()
     build()
-    copy_data_folder()
+    copy_extras()
     report()
 
 
@@ -160,7 +177,6 @@ if __name__ == "__main__":
         main()
     except subprocess.CalledProcessError as e:
         print(f"\n❌ Build fehlgeschlagen: {e}")
-        print("Prüfe die Ausgabe oben für Details.")
         sys.exit(1)
     except KeyboardInterrupt:
         print("\n⚠️  Abgebrochen.")

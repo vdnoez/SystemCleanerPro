@@ -1,13 +1,14 @@
-"""Startup-Manager — aufgeräumt."""
+"""Startup-Manager — mit Toasts."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget,
-    QListWidgetItem, QMessageBox, QLabel
+    QListWidgetItem, QMessageBox, QLabel, QApplication, QStackedWidget
 )
 from PyQt6.QtCore import Qt
 import winreg
 
-from src.ui.widgets import Card, PageHeader
+from src.ui.widgets import Card, PageHeader, EmptyState
 from src.ui.theme import Colors
+from src.ui.toast import toast
 
 
 DISABLED_KEY = r"Software\SystemCleanerPro\DisabledStartup"
@@ -36,7 +37,7 @@ class StartupPage(QWidget):
             "Programme die beim Windows-Start geladen werden"
         ))
 
-        # ─── Warnung ───
+        # Warnung
         warn_card = Card()
         warn_row = QHBoxLayout()
         warn_row.setSpacing(12)
@@ -55,7 +56,7 @@ class StartupPage(QWidget):
         warn_card.add_widget_direct(warn_row)
         layout.addWidget(warn_card)
 
-        # ─── Buttons ───
+        # Buttons
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
@@ -79,11 +80,23 @@ class StartupPage(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-        # ─── Liste ───
+        # Liste (Stacked)
         card = Card("Einträge")
+        self.stack = QStackedWidget()
+
+        self.empty_state = EmptyState(
+            icon="🚀",
+            title="Keine Autostart-Einträge",
+            message="Es sind keine Programme für den Autostart konfiguriert.",
+        )
+        self.stack.addWidget(self.empty_state)
+
         self.list_widget = QListWidget()
         self.list_widget.setMinimumHeight(360)
-        card.add(self.list_widget)
+        self.stack.addWidget(self.list_widget)
+
+        self.stack.setCurrentIndex(0)
+        card.add(self.stack)
         layout.addWidget(card)
 
         layout.addStretch()
@@ -114,8 +127,8 @@ class StartupPage(QWidget):
             )
             winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
             winreg.CloseKey(key)
-        except Exception as e:
-            print(f"Fehler beim Speichern: {e}")
+        except Exception:
+            pass
 
     def _remove_disabled(self, name: str):
         try:
@@ -130,9 +143,9 @@ class StartupPage(QWidget):
     def load_entries(self):
         self.list_widget.clear()
 
-        # Aktive Einträge
-        self.list_widget.addItem("─── ✅ AKTIV ───")
         count = 0
+        self.list_widget.addItem("─── ✅ AKTIV ───")
+
         for hive, path, label, need_admin in self.RUN_KEYS:
             try:
                 with winreg.OpenKey(hive, path) as key:
@@ -156,7 +169,6 @@ class StartupPage(QWidget):
             except FileNotFoundError:
                 continue
 
-        # Deaktivierte Einträge
         disabled = self._load_disabled()
         if disabled:
             self.list_widget.addItem("")
@@ -171,15 +183,17 @@ class StartupPage(QWidget):
                     "active": False, "need_admin": False,
                 })
                 self.list_widget.addItem(item)
+                count += 1
 
-        if count == 0 and not disabled:
-            self.list_widget.addItem(
-                "ℹ️  Keine Autostart-Einträge gefunden."
-            )
+        if count == 0:
+            self.stack.setCurrentIndex(0)
+        else:
+            self.stack.setCurrentIndex(1)
 
     def toggle_selected(self):
         item = self.list_widget.currentItem()
         if not item:
+            toast.warning("Bitte erst Eintrag auswählen")
             return
         data = item.data(Qt.ItemDataRole.UserRole)
         if not data:
@@ -187,11 +201,7 @@ class StartupPage(QWidget):
 
         if data["active"]:
             if data["need_admin"]:
-                QMessageBox.warning(
-                    self, "Admin nötig",
-                    "HKLM-Einträge können nur als Administrator "
-                    "geändert werden."
-                )
+                toast.warning("HKLM-Einträge brauchen Admin-Rechte")
                 return
             try:
                 with winreg.OpenKey(
@@ -200,13 +210,10 @@ class StartupPage(QWidget):
                 ) as key:
                     winreg.DeleteValue(key, data["name"])
                 self._save_disabled(data["name"], data["value"])
-                QMessageBox.information(
-                    self, "Deaktiviert",
-                    f"'{data['name']}' wurde deaktiviert."
-                )
+                toast.success(f"'{data['name']}' deaktiviert")
                 self.load_entries()
             except Exception as e:
-                QMessageBox.warning(self, "Fehler", str(e))
+                toast.error(f"Fehler: {e}")
         else:
             try:
                 key = winreg.CreateKeyEx(
@@ -218,17 +225,15 @@ class StartupPage(QWidget):
                                   winreg.REG_SZ, data["value"])
                 winreg.CloseKey(key)
                 self._remove_disabled(data["name"])
-                QMessageBox.information(
-                    self, "Aktiviert",
-                    f"'{data['name']}' wurde reaktiviert."
-                )
+                toast.success(f"'{data['name']}' aktiviert")
                 self.load_entries()
             except Exception as e:
-                QMessageBox.warning(self, "Fehler", str(e))
+                toast.error(f"Fehler: {e}")
 
     def delete_selected(self):
         item = self.list_widget.currentItem()
         if not item:
+            toast.warning("Bitte erst Eintrag auswählen")
             return
         data = item.data(Qt.ItemDataRole.UserRole)
         if not data:
@@ -245,10 +250,7 @@ class StartupPage(QWidget):
         try:
             if data["active"]:
                 if data["need_admin"]:
-                    QMessageBox.warning(
-                        self, "Admin nötig",
-                        "HKLM-Einträge können nur als Admin geändert werden."
-                    )
+                    toast.warning("HKLM-Einträge brauchen Admin-Rechte")
                     return
                 with winreg.OpenKey(
                     winreg.HKEY_CURRENT_USER, data["path"],
@@ -257,6 +259,7 @@ class StartupPage(QWidget):
                     winreg.DeleteValue(key, data["name"])
             else:
                 self._remove_disabled(data["name"])
+            toast.success(f"'{data['name']}' gelöscht")
             self.load_entries()
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", str(e))
+            toast.error(f"Fehler: {e}")

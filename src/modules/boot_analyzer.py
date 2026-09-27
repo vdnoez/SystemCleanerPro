@@ -1,14 +1,25 @@
-"""Boot-Time-Analyzer — liest Windows-Boot-Performance aus Event-Log."""
+"""Boot-Time-Analyzer — mit Encoding-Fix."""
 import subprocess
-import re
+import json
 from datetime import datetime
 
 
-def get_boot_events_powershell() -> list[dict]:
-    """
-    Liest Boot-Events via PowerShell (robusteste Methode).
-    Event ID 100 = Microsoft-Windows-Diagnostics-Performance/Operational
-    """
+def _run_ps(cmd: str, timeout: int = 30) -> str:
+    """Führt PowerShell aus mit Encoding-Fix."""
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", cmd],
+            capture_output=True, text=True, timeout=timeout,
+            encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW
+            if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+        )
+        return (r.stdout or "").strip()
+    except Exception:
+        return ""
+
+
+def get_boot_events_powershell() -> list:
     ps_cmd = (
         'Get-WinEvent -FilterHashtable '
         '@{LogName="Microsoft-Windows-Diagnostics-Performance/Operational";'
@@ -20,19 +31,11 @@ def get_boot_events_powershell() -> list[dict]:
         'ConvertTo-Json -Compress'
     )
 
+    output = _run_ps(ps_cmd, timeout=30)
+    if not output or output == "null":
+        return []
+
     try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_cmd],
-            capture_output=True, text=True, timeout=30
-        )
-        if result.returncode != 0:
-            return []
-
-        output = result.stdout.strip()
-        if not output or output == "null":
-            return []
-
-        import json
         data = json.loads(output)
         if isinstance(data, dict):
             data = [data]
@@ -48,17 +51,12 @@ def get_boot_events_powershell() -> list[dict]:
                 })
             except Exception:
                 continue
-
         return events
-
-    except subprocess.TimeoutExpired:
-        return []
-    except Exception:
+    except json.JSONDecodeError:
         return []
 
 
 def format_ms(ms: int) -> str:
-    """Millisekunden in '2 Min 34 Sek' umwandeln."""
     if ms <= 0:
         return "—"
     total_sec = ms / 1000
@@ -70,27 +68,22 @@ def format_ms(ms: int) -> str:
 
 
 def get_boot_summary() -> dict:
-    """Gesamtübersicht über alle Boots."""
     events = get_boot_events_powershell()
 
     if not events:
         return {
-            "total": 0,
-            "events": [],
-            "avg_ms": 0,
-            "fastest_ms": 0,
-            "slowest_ms": 0,
-            "latest_ms": 0,
+            "total": 0, "events": [],
+            "avg_ms": 0, "fastest_ms": 0,
+            "slowest_ms": 0, "latest_ms": 0,
         }
 
-    # Nur gültige Zeiten (>0)
     times = [e["boot_ms"] for e in events if e["boot_ms"] > 0]
 
     if not times:
         return {
-            "total": len(events),
-            "events": events,
-            "avg_ms": 0, "fastest_ms": 0, "slowest_ms": 0, "latest_ms": 0,
+            "total": len(events), "events": events,
+            "avg_ms": 0, "fastest_ms": 0,
+            "slowest_ms": 0, "latest_ms": 0,
         }
 
     return {

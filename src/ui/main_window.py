@@ -1,4 +1,4 @@
-"""Hauptfenster — Sidebar mit Kategorien und Update-Seite."""
+"""Hauptfenster — Sidebar mit Kategorien."""
 import sys
 from pathlib import Path
 
@@ -12,23 +12,22 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QShortcut, QKeySequence
 from PyQt6.QtCore import Qt
 
-from src.core.config import APP_NAME, APP_VERSION
+from src.core.config import APP_NAME, APP_VERSION, APP_OWNER
 from src.ui.theme import get_stylesheet, Colors, get_theme_name
 from src.ui.icons import icon
 from src.ui.dashboard import Dashboard
 from src.ui.pages.health_page import HealthPage
 from src.ui.pages.games_page import GamesPage
 from src.ui.pages.cleaner_page import CleanerPage
-from src.ui.pages.updater_page import UpdaterPage
+from src.ui.pages.updater_page import SoftwareUpdaterPage
 from src.ui.pages.ram_page import RamPage
 from src.ui.pages.processes_page import ProcessesPage
 from src.ui.pages.network_page import NetworkPage
 from src.ui.pages.startup_page import StartupPage
 from src.ui.pages.shredder_page import ShredderPage
 from src.ui.pages.bsod_page import BsodPage
-from src.ui.pages.boot_page import BootPage
-from src.ui.pages.dns_page import DnsPage
-from src.ui.pages.vpn_page import VpnPage
+from src.ui.pages.stats_page import StatsPage
+from src.ui.pages.sysinfo_page import SysInfoPage
 from src.ui.pages.password_page import PasswordPage
 from src.ui.pages.update_page import UpdatePage
 from src.ui.settings_dialog import SettingsDialog, load_settings
@@ -45,6 +44,7 @@ NAV_STRUCTURE = [
         "items": [
             ("Health-Check", "shield"),
             ("Dashboard", "dashboard"),
+            ("System-Info", "system"),
             ("Prozesse", "processes"),
             ("Netzwerk", "network"),
         ],
@@ -63,16 +63,14 @@ NAV_STRUCTURE = [
     {
         "label": "🔐  SICHERHEIT",
         "items": [
-            ("VPN", "shield"),
             ("Passwort", "shield"),
-            ("DNS", "network"),
         ],
     },
     {
         "label": "🔍  ANALYSE",
         "items": [
             ("BSOD", "search"),
-            ("Boot", "dashboard"),
+            ("Downloads", "download"),
         ],
     },
     {
@@ -96,7 +94,7 @@ class MainWindow(QMainWindow):
         self.settings = load_settings()
         self.setWindowTitle(f"{APP_NAME}  ·  v{APP_VERSION}")
         self.resize(1400, 880)
-        self.setMinimumSize(1180, 720)
+        self.setMinimumSize(1080, 680)
         self.setStyleSheet(get_stylesheet())
 
         self.setWindowIcon(icon("bolt", Colors.ACCENT))
@@ -112,22 +110,21 @@ class MainWindow(QMainWindow):
         # ═══════ CONTENT ═══════
         self.stack = QStackedWidget()
         self._pages = [
-            HealthPage(),      # 1.  Health-Check
-            Dashboard(),       # 2.  Dashboard
-            ProcessesPage(),   # 3.  Prozesse
-            NetworkPage(),     # 4.  Netzwerk
-            CleanerPage(),     # 5.  Cleaner
-            UpdaterPage(),     # 6.  Software-Updater
-            RamPage(),         # 7.  RAM
-            ShredderPage(),    # 8.  Shredder
-            StartupPage(),     # 9.  Autostart
-            UpdatePage(),      # 10. App-Update
-            VpnPage(),         # 11. VPN
-            PasswordPage(),    # 12. Passwort
-            DnsPage(),         # 13. DNS
-            BsodPage(),        # 14. BSOD
-            BootPage(),        # 15. Boot
-            GamesPage(),       # 16. Games
+            HealthPage(),
+            Dashboard(),
+            SysInfoPage(),
+            ProcessesPage(),
+            NetworkPage(),
+            CleanerPage(),
+            SoftwareUpdaterPage(),
+            RamPage(),
+            ShredderPage(),
+            StartupPage(),
+            UpdatePage(),
+            PasswordPage(),
+            BsodPage(),
+            StatsPage(),
+            GamesPage(),
         ]
 
         for p in self._pages:
@@ -143,10 +140,9 @@ class MainWindow(QMainWindow):
         root.addWidget(self.stack, 1)
 
         self.statusBar().showMessage(
-            f"Bereit.  ·  Theme: {get_theme_name()}"
+            f"Bereit  ·  v{APP_VERSION}  ·  {APP_OWNER}"
         )
 
-        # Tray
         self.tray = None
         if tray and QSystemTrayIcon.isSystemTrayAvailable():
             self.tray = create_tray_icon(self)
@@ -167,7 +163,7 @@ class MainWindow(QMainWindow):
     def _build_sidebar(self) -> QWidget:
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(240)
+        sidebar.setFixedWidth(260)
 
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -176,7 +172,6 @@ class MainWindow(QMainWindow):
         logo = QLabel("⚡  Cleaner Pro")
         logo.setObjectName("Logo")
         layout.addWidget(logo)
-        layout.addSpacing(6)
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
@@ -230,9 +225,10 @@ class MainWindow(QMainWindow):
         about_btn.clicked.connect(self.open_about)
         layout.addWidget(about_btn)
 
-        version_lbl = QLabel(f"  v{APP_VERSION}")
+        version_lbl = QLabel(f"  v{APP_VERSION}  ·  {APP_OWNER}")
         version_lbl.setStyleSheet(
-            f"color: {Colors.TEXT_MUTED}; font-size: 11px; padding: 16px;"
+            f"color: {Colors.TEXT_MUTED}; font-size: 10px; "
+            "padding: 16px 24px;"
         )
         layout.addWidget(version_lbl)
 
@@ -249,12 +245,17 @@ class MainWindow(QMainWindow):
             f"{label}  ·  {index + 1}/{self.stack.count()}"
         )
 
+    def _goto_page(self, page_name: str):
+        for i, (name, _) in enumerate(PAGES_ORDER):
+            if name == page_name:
+                self._switch_page(i)
+                return True
+        return False
+
     def open_update_page(self):
-        """Öffnet die App-Update-Seite (Index 9)."""
         for i, (name, _) in enumerate(PAGES_ORDER):
             if name == "App-Update":
                 self._switch_page(i)
-                # Check direkt starten
                 try:
                     page = self.stack.widget(i).widget()
                     if hasattr(page, "check_update"):

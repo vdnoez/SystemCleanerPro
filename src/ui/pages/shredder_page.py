@@ -1,16 +1,17 @@
-"""File Shredder — aufgeräumt."""
+"""File Shredder — mit Toasts und Empty-States."""
 import os
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QFileDialog, QMessageBox, QProgressDialog, QListWidget,
-    QApplication
+    QApplication, QStackedWidget
 )
 from PyQt6.QtCore import Qt
 
-from src.ui.widgets import Card, PageHeader
+from src.ui.widgets import Card, PageHeader, EmptyState, LoadingState
 from src.ui.theme import Colors
+from src.ui.toast import toast
 from src.modules.dev_tools import human_size
 
 
@@ -50,7 +51,7 @@ class ShredderPage(QWidget):
             "Dateien können NICHT wiederhergestellt werden"
         ))
 
-        # ─── Warnung ───
+        # Warnung
         warn_card = Card()
         warn_row = QHBoxLayout()
         warn_row.setSpacing(12)
@@ -59,8 +60,7 @@ class ShredderPage(QWidget):
         warn_row.addWidget(icon)
         warn_lbl = QLabel(
             "Shredderte Dateien sind ENDGÜLTIG weg. "
-            "Auch mit Recovery-Tools nicht wiederherstellbar. "
-            "Nutze das nur wenn du sicher bist!"
+            "Auch mit Recovery-Tools nicht wiederherstellbar."
         )
         warn_lbl.setWordWrap(True)
         warn_lbl.setStyleSheet(
@@ -70,7 +70,7 @@ class ShredderPage(QWidget):
         warn_card.add_widget_direct(warn_row)
         layout.addWidget(warn_card)
 
-        # ─── Buttons ───
+        # Buttons
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
@@ -94,14 +94,28 @@ class ShredderPage(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-        # ─── Datei-Liste ───
+        # Datei-Liste (Stacked)
         card = Card("Ausgewählte Dateien")
+        self.stack = QStackedWidget()
+
+        # Empty-State
+        self.empty_state = EmptyState(
+            icon="📄",
+            title="Keine Dateien ausgewählt",
+            message="Füge Dateien oder Ordner hinzu um sie sicher zu löschen.",
+        )
+        self.stack.addWidget(self.empty_state)
+
+        # Liste
         self.list_widget = QListWidget()
         self.list_widget.setMinimumHeight(220)
-        card.add(self.list_widget)
+        self.stack.addWidget(self.list_widget)
+
+        self.stack.setCurrentIndex(0)
+        card.add(self.stack)
         layout.addWidget(card)
 
-        # ─── Passes + Shred-Button ───
+        # Passes + Shred-Button
         passes_row = QHBoxLayout()
         passes_row.setSpacing(10)
         passes_row.addWidget(QLabel("Überschreib-Durchläufe:"))
@@ -124,7 +138,6 @@ class ShredderPage(QWidget):
         passes_row.addWidget(self.passes_label)
         layout.addLayout(passes_row)
 
-        # ─── Shred-Button ───
         self.shred_btn = QPushButton("🔥 JETZT SICHER LÖSCHEN")
         self.shred_btn.setObjectName("DangerButton")
         self.shred_btn.setMinimumHeight(48)
@@ -141,10 +154,14 @@ class ShredderPage(QWidget):
         files, _ = QFileDialog.getOpenFileNames(
             self, "Dateien zum sicheren Löschen auswählen"
         )
+        added = 0
         for f in files:
             p = Path(f)
             if p not in self._files:
                 self._files.append(p)
+                added += 1
+        if added:
+            toast.info(f"{added} Datei(en) hinzugefügt")
         self._refresh_list()
 
     def add_folder(self):
@@ -154,17 +171,31 @@ class ShredderPage(QWidget):
         if not folder:
             return
         root = Path(folder)
+        added = 0
         for f in root.rglob("*"):
             if f.is_file() and f not in self._files:
                 self._files.append(f)
+                added += 1
+        if added:
+            toast.info(f"{added} Datei(en) hinzugefügt")
         self._refresh_list()
 
     def clear_list(self):
+        if not self._files:
+            return
+        count = len(self._files)
         self._files.clear()
         self._refresh_list()
+        toast.info(f"Liste geleert ({count} entfernt)")
 
     def _refresh_list(self):
         self.list_widget.clear()
+
+        if not self._files:
+            self.stack.setCurrentIndex(0)
+            return
+
+        self.stack.setCurrentIndex(1)
         total = 0
         for f in self._files:
             try:
@@ -183,18 +214,14 @@ class ShredderPage(QWidget):
 
     def do_shred(self):
         if not self._files:
-            QMessageBox.information(
-                self, "Nichts ausgewählt",
-                "Füge erst Dateien oder Ordner hinzu."
-            )
+            toast.warning("Keine Dateien ausgewählt")
             return
 
         reply = QMessageBox.warning(
             self, "Endgültig löschen?",
             f"{len(self._files)} Dateien werden mit {self.passes} "
             f"Durchläufen überschrieben.\n\n"
-            f"Das kann NICHT rückgängig gemacht werden!\n\n"
-            f"Wirklich fortfahren?",
+            f"Das kann NICHT rückgängig gemacht werden!",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -208,7 +235,7 @@ class ShredderPage(QWidget):
 
         ok = 0
         fail = 0
-        errors = []
+        total_size = 0
 
         for i, path in enumerate(self._files):
             if progress.wasCanceled():
@@ -216,20 +243,27 @@ class ShredderPage(QWidget):
             progress.setValue(i)
             progress.setLabelText(f"Überschreibe {path.name}...")
 
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = 0
+
             success, err = shred_file(path, self.passes)
             if success:
                 ok += 1
+                total_size += size
             else:
                 fail += 1
-                errors.append(f"{path.name}: {err}")
 
         progress.setValue(len(self._files))
 
-        msg = f"✅ {ok} Dateien sicher gelöscht\n"
-        if fail:
-            msg += f"❌ {fail} Fehler\n\n"
-            msg += "\n".join(errors[:5])
+        if ok > 0:
+            toast.success(
+                f"{ok} Dateien sicher gelöscht · "
+                f"{human_size(total_size)} freigegeben"
+            )
+        if fail > 0:
+            toast.error(f"{fail} Dateien fehlgeschlagen")
 
-        QMessageBox.information(self, "Fertig", msg)
         self._files.clear()
         self._refresh_list()

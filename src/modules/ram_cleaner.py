@@ -1,18 +1,19 @@
-"""RAM-Cleaner — sicher via Sub-Prozess."""
+"""RAM-Cleaner — crashsicher, mit Encoding-Fix."""
 import ctypes
 import gc
 import os
-import subprocess
 import sys
 import json
+import subprocess
+import tempfile
 from ctypes import wintypes
+from pathlib import Path
 
 
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_SET_QUOTA = 0x0100
 
 
-# Prozesse die NIEMALS angefasst werden
 PROTECTED_NAMES = {
     "system", "system idle process", "registry", "memory compression",
     "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe",
@@ -58,11 +59,7 @@ def get_memory_status() -> dict:
         return {}
 
 
-# ═══════════════════════════════════════════════════════════════
-# Diese Funktion läuft im SUB-PROZESS (isoliert)
-# ═══════════════════════════════════════════════════════════════
 def _worker_run() -> dict:
-    """Läuft im Sub-Prozess. Wenn dieser crasht, merkt das der Parent."""
     try:
         import psutil
     except ImportError:
@@ -74,6 +71,7 @@ def _worker_run() -> dict:
 
     kernel32 = ctypes.windll.kernel32
     psapi = ctypes.windll.psapi
+
     cleared = 0
     skipped = 0
     failed = 0
@@ -82,9 +80,11 @@ def _worker_run() -> dict:
         try:
             pid = proc.info["pid"]
             name = (proc.info["name"] or "").lower()
+
             if name in PROTECTED_NAMES or pid == os.getpid():
                 skipped += 1
                 continue
+
             try:
                 handle = kernel32.OpenProcess(
                     PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA,
@@ -120,51 +120,76 @@ def _worker_run() -> dict:
     }
 
 
-# ═══════════════════════════════════════════════════════════════
-# Public API — läuft im HAUPT-Prozess
-# ═══════════════════════════════════════════════════════════════
+def _get_worker_command() -> list:
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--ram-cleaner-helper"]
+    else:
+        script_path = os.path.abspath(__file__)
+        return [sys.executable, script_path]
+
+
 def empty_working_sets() -> dict:
-    """
-    Führt den Cleaner in einem Sub-Prozess aus.
-    Wenn der Sub-Prozess crasht → App läuft weiter.
-    """
-    # Wenn wir im Worker-Prozess sind → direkt ausführen
     if os.environ.get("RAM_CLEANER_WORKER") == "1":
         return _worker_run()
+    if "--ram-cleaner-helper" in sys.argv:
+        return _worker_run()
 
-    # Sonst: Sub-Prozess starten
-    script_path = os.path.abspath(__file__)
+    cmd = _get_worker_command()
     env = os.environ.copy()
     env["RAM_CLEANER_WORKER"] = "1"
 
+    result_file = Path(tempfile.gettempdir()) / "ram_cleaner_result.json"
     try:
-        result = subprocess.run(
-            [sys.executable, script_path],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=30,
+        if result_file.exists():
+            result_file.unlink()
+    except Exception:
+        pass
+
+    env["RAM_CLEANER_RESULT_FILE"] = str(result_file)
+
+    try:
+        proc = subprocess.run(
+            cmd, env=env, capture_output=True, text=True, timeout=15,
+            encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW
+            if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
         )
-        # Worker hat JSON in stdout geprintet
-        for line in result.stdout.splitlines():
+
+        if result_file.exists():
+            try:
+                data = json.loads(result_file.read_text(encoding="utf-8"))
+                result_file.unlink()
+                return data
+            except Exception:
+                pass
+
+        for line in (proc.stdout or "").splitlines():
             line = line.strip()
             if line.startswith("{"):
                 try:
                     return json.loads(line)
                 except json.JSONDecodeError:
                     continue
-        # Kein JSON → Crash im Worker
+
         return {
             "success": False,
-            "error": "Cleaner-Prozess abgestürzt (Windows-API-Fehler)",
+            "error": "Cleaner-Prozess abgestürzt",
         }
     except subprocess.TimeoutExpired:
-        return {"success": False, "error": "Cleaner dauerte zu lange (>30s)"}
+        return {"success": False, "error": "Timeout (>15s)"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
-# Wenn diese Datei direkt ausgeführt wird → Worker-Modus
 if __name__ == "__main__":
     result = _worker_run()
+    result_file = os.environ.get("RAM_CLEANER_RESULT_FILE")
+    if result_file:
+        try:
+            Path(result_file).write_text(
+                json.dumps(result), encoding="utf-8"
+            )
+        except Exception:
+            pass
     print(json.dumps(result))
+    sys.exit(0)

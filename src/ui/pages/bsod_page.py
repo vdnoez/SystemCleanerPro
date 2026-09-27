@@ -1,12 +1,16 @@
-"""BSOD-Analyzer — aufgeräumt."""
+"""BSOD-Analyzer — mit Toasts und Empty-States."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QListWidget, QListWidgetItem, QMessageBox, QApplication
+    QListWidget, QListWidgetItem, QMessageBox, QApplication,
+    QStackedWidget
 )
 from PyQt6.QtCore import Qt
 
-from src.ui.widgets import Card, MetricCard, PageHeader
+from src.ui.widgets import (
+    Card, MetricCard, PageHeader, EmptyState, LoadingState
+)
 from src.ui.theme import Colors
+from src.ui.toast import toast
 from src.modules.bsod_analyzer import get_crash_summary, STOP_CODES
 
 
@@ -24,7 +28,7 @@ class BsodPage(QWidget):
             "Analysiert Bluescreen-Minidumps und zeigt Ursachen"
         ))
 
-        # ─── Metric-Cards ───
+        # Metric-Cards
         row = QHBoxLayout()
         row.setSpacing(14)
         self.total_card = MetricCard("Crashes gesamt", "💥")
@@ -34,7 +38,6 @@ class BsodPage(QWidget):
             row.addWidget(w)
         layout.addLayout(row)
 
-        # ─── Info-Card ───
         info_card = Card("Info")
         info = QLabel(
             "Windows speichert bei jedem Bluescreen einen Minidump in "
@@ -48,7 +51,7 @@ class BsodPage(QWidget):
         info_card.add(info)
         layout.addWidget(info_card)
 
-        # ─── Buttons ───
+        # Buttons
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
@@ -66,11 +69,29 @@ class BsodPage(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-        # ─── Liste ───
+        # Result-Stack
         result_card = Card("Gefundene Bluescreens")
+        self.stack = QStackedWidget()
+
+        # Page 0: Empty
+        self.empty_state = EmptyState(
+            icon="✨",
+            title="Keine Crashes gefunden",
+            message="Klick auf 'Minidumps scannen' um Bluescreen-Logs zu analysieren.",
+        )
+        self.stack.addWidget(self.empty_state)
+
+        # Page 1: Loading
+        self.loading_state = LoadingState("Scanne Minidumps...")
+        self.stack.addWidget(self.loading_state)
+
+        # Page 2: Liste
         self.list_widget = QListWidget()
         self.list_widget.setMinimumHeight(280)
-        result_card.add(self.list_widget)
+        self.stack.addWidget(self.list_widget)
+
+        self.stack.setCurrentIndex(0)
+        result_card.add(self.stack)
         layout.addWidget(result_card)
 
         layout.addStretch()
@@ -83,6 +104,7 @@ class BsodPage(QWidget):
         try:
             self.scan_btn.setEnabled(False)
             self.scan_btn.setText("⏳ Scanne...")
+            self.stack.setCurrentIndex(1)
         except RuntimeError:
             pass
         QApplication.processEvents()
@@ -127,11 +149,18 @@ class BsodPage(QWidget):
             return
 
         self.list_widget.clear()
+
         if not crashes:
-            self.list_widget.addItem(
-                "✅ Keine Bluescreen-Dumps gefunden. "
-                "Dein System läuft stabil!"
+            self.empty_state = EmptyState(
+                icon="✅",
+                title="Keine Bluescreens gefunden",
+                message=f"Dein System läuft stabil!\n"
+                        f"{total} Minidumps überprüft.",
             )
+            self.stack.removeWidget(self.stack.widget(0))
+            self.stack.insertWidget(0, self.empty_state)
+            self.stack.setCurrentIndex(0)
+            toast.success("Keine Bluescreens gefunden — System stabil")
             return
 
         for c in crashes:
@@ -155,9 +184,13 @@ class BsodPage(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, str(c["path"]))
             self.list_widget.addItem(item)
 
+        self.stack.setCurrentIndex(2)
+        toast.warning(f"{len(crashes)} Bluescreen(s) gefunden")
+
     def open_folder(self):
         import subprocess
         try:
             subprocess.Popen(["explorer", r"C:\Windows\Minidump"])
+            toast.info("Minidump-Ordner geöffnet")
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", str(e))
+            toast.error(f"Fehler: {e}")

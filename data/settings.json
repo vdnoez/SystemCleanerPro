@@ -1,9 +1,12 @@
 {
-  "theme": "aurora",
+  "theme": "slate",
   "start_minimized": false,
   "minimize_to_tray": true,
   "close_to_tray": true,
   "auto_refresh_seconds": 2,
   "show_splash": true,
-  "confirm_delete": true
+  "confirm_delete": true,
+  "auto_check_updates": true,
+  "auto_install_updates": false,
+  "sidebar_collapsed": false
 }

@@ -1,0 +1,24 @@
+# Build-Artefakte (nicht committen)
+build/
+dist/
+*.spec
+*.pyc
+__pycache__/
+
+# Daten (nur Struktur, keine Inhalte)
+data/*.json
+!data/cleanup_rules.json
+!data/games.json
+!data/privacy_checks.json
+
+# IDE
+.vscode/
+.idea/
+
+# Temp
+*.log
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db

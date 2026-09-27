@@ -1,4 +1,4 @@
-"""Windows-Health-Check-Seite."""
+"""Windows-Health-Check-Seite — mit Toasts."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QApplication, QMessageBox
@@ -8,6 +8,7 @@ import subprocess
 
 from src.ui.widgets import Card, MetricCard, PageHeader, CircularProgress
 from src.ui.theme import Colors
+from src.ui.toast import toast
 from src.modules.windows_check import run_all_checks
 
 
@@ -41,17 +42,15 @@ class HealthPage(QWidget):
             "Prüft 13 Aspekte deiner Systemgesundheit"
         ))
 
-        # ─── Score + Summary ───
+        # Score + Summary
         top_row = QHBoxLayout()
         top_row.setSpacing(16)
 
-        # Score-Card mit Ring
         score_card = Card("System-Score")
         self.score_ring = CircularProgress()
         score_card.add(self.score_ring)
         top_row.addWidget(score_card, 1)
 
-        # Summary-Cards
         summary_layout = QVBoxLayout()
         summary_layout.setSpacing(12)
 
@@ -67,7 +66,6 @@ class HealthPage(QWidget):
         cards_row.addWidget(self.err_card)
         summary_layout.addLayout(cards_row)
 
-        # Status-Label
         self.status_lbl = QLabel("Klicke auf 'Scan starten' um zu beginnen")
         self.status_lbl.setStyleSheet(
             f"color: {Colors.TEXT_SECONDARY}; font-size: 13px;"
@@ -79,7 +77,7 @@ class HealthPage(QWidget):
         top_row.addLayout(summary_layout, 2)
         layout.addLayout(top_row)
 
-        # ─── Scan-Button ───
+        # Scan-Button
         btn_row = QHBoxLayout()
         self.scan_btn = QPushButton("🔍 Scan starten")
         self.scan_btn.setMinimumHeight(46)
@@ -89,14 +87,13 @@ class HealthPage(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-        # ─── Ergebnis-Liste ───
+        # Ergebnis-Liste
         result_card = Card("Ergebnisse")
         self.result_list = QListWidget()
         self.result_list.setMinimumHeight(280)
         self.result_list.itemDoubleClicked.connect(self._on_item_double_click)
         result_card.add(self.result_list)
 
-        # Hinweis unter Liste
         hint = QLabel(
             "💡 Doppelklick auf einen Eintrag mit Fix öffnet die "
             "entsprechende Windows-Einstellung"
@@ -137,7 +134,7 @@ class HealthPage(QWidget):
             return
 
         if result.get("error") and not result.get("results"):
-            self.status_lbl.setText(f"❌ Fehler: {result['error']}")
+            toast.error(f"Fehler: {result['error']}")
             return
 
         score = result.get("score", 0)
@@ -148,29 +145,23 @@ class HealthPage(QWidget):
         err = result.get("error", 0)
         total = result.get("total", 0)
 
-        # Summary-Cards aktualisieren
         self.ok_card.set_text(str(ok), f"von {total} OK")
         self.warn_card.set_text(str(warn), "Warnungen")
         self.err_card.set_text(str(err), "Fehler")
 
-        # Status
         if score >= 85:
-            self.status_lbl.setText(
-                f"✅ Ausgezeichnet! Dein System ist in sehr gutem Zustand "
-                f"(Score {score}/100)"
-            )
+            msg = f"Ausgezeichnet! Score {score}/100"
+            self.status_lbl.setText(f"✅ {msg}")
+            toast.success(msg)
         elif score >= 65:
-            self.status_lbl.setText(
-                f"⚠️  Ok, aber es gibt Verbesserungspotenzial "
-                f"(Score {score}/100)"
-            )
+            msg = f"Okay, aber Verbesserungspotenzial. Score {score}/100"
+            self.status_lbl.setText(f"⚠️  {msg}")
+            toast.warning(msg)
         else:
-            self.status_lbl.setText(
-                f"❌ Mehrere Probleme gefunden — siehe Liste unten "
-                f"(Score {score}/100)"
-            )
+            msg = f"Mehrere Probleme gefunden. Score {score}/100"
+            self.status_lbl.setText(f"❌ {msg}")
+            toast.error(msg)
 
-        # Ergebnisse anzeigen
         self.result_list.clear()
         for r in result.get("results", []):
             status = r.get("status", "warn")
@@ -209,12 +200,11 @@ class HealthPage(QWidget):
         try:
             if action == "open_url":
                 subprocess.Popen(["start", value], shell=True)
+                toast.info(f"Öffne: {value}")
             elif action == "open_folder":
                 subprocess.Popen(["explorer", value])
+                toast.info(f"Öffne Ordner")
             else:
-                QMessageBox.information(
-                    self, "Fix",
-                    f"Aktion: {action}\nWert: {value}"
-                )
+                toast.info(f"Aktion: {action}")
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", str(e))
+            toast.error(f"Fehler: {e}")

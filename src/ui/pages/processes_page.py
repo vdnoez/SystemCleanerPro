@@ -1,4 +1,4 @@
-"""Prozess-Manager — aufgeräumt."""
+"""Prozess-Manager — mit Toasts."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
@@ -9,6 +9,7 @@ import psutil
 
 from src.ui.widgets import Card, PageHeader
 from src.ui.theme import Colors
+from src.ui.toast import toast
 
 
 class ProcessesPage(QWidget):
@@ -24,7 +25,6 @@ class ProcessesPage(QWidget):
             "Top-Verbraucher und Prozess-Verwaltung"
         ))
 
-        # ─── Such-Zeile ───
         search_row = QHBoxLayout()
         search_row.setSpacing(10)
 
@@ -33,10 +33,8 @@ class ProcessesPage(QWidget):
         self.search_input.setMinimumHeight(40)
         self.search_input.textChanged.connect(self._filter_table)
         search_row.addWidget(self.search_input, 1)
-
         layout.addLayout(search_row)
 
-        # ─── Buttons ───
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
@@ -54,7 +52,6 @@ class ProcessesPage(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-        # ─── Tabelle ───
         table_card = Card("Top 30 Prozesse (nach RAM)")
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(
@@ -78,7 +75,6 @@ class ProcessesPage(QWidget):
 
         layout.addStretch()
 
-        # Auto-Refresh
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(3000)
@@ -110,7 +106,6 @@ class ProcessesPage(QWidget):
             self.table.setItem(row, 2, QTableWidgetItem(f"{cpu:.1f}"))
             self.table.setItem(row, 3, QTableWidgetItem(f"{mem:.1f}"))
 
-        # Filter erneut anwenden
         if hasattr(self, "search_input"):
             self._filter_table(self.search_input.text())
 
@@ -128,10 +123,7 @@ class ProcessesPage(QWidget):
     def kill_selected(self):
         row = self.table.currentRow()
         if row < 0:
-            QMessageBox.information(
-                self, "Nichts ausgewählt",
-                "Bitte wähle einen Prozess aus."
-            )
+            toast.warning("Bitte erst Prozess auswählen")
             return
 
         pid_item = self.table.item(row, 0)
@@ -150,6 +142,7 @@ class ProcessesPage(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 psutil.Process(pid).terminate()
+                toast.success(f"'{name}' beendet")
                 self.refresh()
             except Exception as e:
-                QMessageBox.warning(self, "Fehler", str(e))
+                toast.error(f"Fehler: {e}")

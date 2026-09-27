@@ -1,10 +1,9 @@
-"""Auto-Updater via GitHub Releases."""
+"""Auto-Updater via GitHub Releases — mit Encoding-Fix."""
 import os
 import sys
 import json
 import subprocess
 import tempfile
-import hashlib
 from pathlib import Path
 from typing import Callable
 
@@ -17,8 +16,41 @@ except ImportError:
 from src.core.config import APP_VERSION, GITHUB_API
 
 
+def _fix_ssl_for_frozen():
+    """Setzt SSL_CERT_FILE wenn App als EXE läuft."""
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        import certifi
+        cert_path = certifi.where()
+        if os.path.exists(cert_path):
+            os.environ["SSL_CERT_FILE"] = cert_path
+            os.environ["REQUESTS_CA_BUNDLE"] = cert_path
+            return
+    except Exception:
+        pass
+
+    try:
+        exe_dir = Path(sys.executable).parent
+        candidates = [
+            exe_dir / "_internal" / "certifi" / "cacert.pem",
+            exe_dir / "certifi" / "cacert.pem",
+            exe_dir / "_internal" / "cacert.pem",
+            exe_dir / "cacert.pem",
+        ]
+        for cert_file in candidates:
+            if cert_file.exists():
+                os.environ["SSL_CERT_FILE"] = str(cert_file)
+                os.environ["REQUESTS_CA_BUNDLE"] = str(cert_file)
+                return
+    except Exception:
+        pass
+
+
+_fix_ssl_for_frozen()
+
+
 def parse_version(v: str) -> tuple:
-    """Wandelt '1.2.3' in (1, 2, 3) um."""
     v = v.lstrip("v").strip()
     parts = []
     for p in v.split("."):
@@ -32,23 +64,10 @@ def parse_version(v: str) -> tuple:
 
 
 def is_newer(latest: str, current: str) -> bool:
-    """Prüft ob latest > current."""
     return parse_version(latest) > parse_version(current)
 
 
 def check_for_update(timeout: int = 10) -> dict:
-    """
-    Prüft GitHub auf neueste Version.
-    Returns dict mit:
-      - update_available: bool
-      - latest_version: str
-      - current_version: str
-      - download_url: str
-      - release_notes: str
-      - release_url: str
-      - published_at: str
-      - error: str (falls Fehler)
-    """
     result = {
         "update_available": False,
         "latest_version": APP_VERSION,
@@ -74,6 +93,9 @@ def check_for_update(timeout: int = 10) -> dict:
         if r.status_code == 404:
             result["error"] = "Kein Release auf GitHub gefunden"
             return result
+        if r.status_code == 401:
+            result["error"] = "GitHub-Repo privat oder nicht vorhanden"
+            return result
         if r.status_code != 200:
             result["error"] = f"HTTP {r.status_code}"
             return result
@@ -88,12 +110,13 @@ def check_for_update(timeout: int = 10) -> dict:
         if not is_newer(tag, APP_VERSION):
             return result
 
-        # Download-URL für .exe finden
         assets = data.get("assets", [])
         for asset in assets:
             name = asset.get("name", "").lower()
             if name.endswith(".exe"):
-                result["download_url"] = asset.get("browser_download_url", "")
+                result["download_url"] = asset.get(
+                    "browser_download_url", ""
+                )
                 break
 
         if not result["download_url"]:
@@ -106,16 +129,15 @@ def check_for_update(timeout: int = 10) -> dict:
     except requests.Timeout:
         result["error"] = "Zeitüberschreitung"
         return result
+    except requests.exceptions.SSLError as e:
+        result["error"] = f"SSL-Fehler: {str(e)[:100]}"
+        return result
     except Exception as e:
-        result["error"] = str(e)
+        result["error"] = str(e)[:150]
         return result
 
 
 def download_update(url: str, progress_cb: Callable = None) -> tuple:
-    """
-    Lädt die neue .exe herunter.
-    Returns (success, path_or_error).
-    """
     if not HAS_REQUESTS:
         return False, "requests fehlt"
 
@@ -124,7 +146,14 @@ def download_update(url: str, progress_cb: Callable = None) -> tuple:
         tmp_dir.mkdir(exist_ok=True)
         new_exe = tmp_dir / "SystemCleanerPro_new.exe"
 
-        r = requests.get(url, stream=True, timeout=60)
+        if new_exe.exists():
+            try:
+                new_exe.unlink()
+            except Exception:
+                pass
+
+        r = requests.get(url, stream=True, timeout=60,
+                         allow_redirects=True)
         r.raise_for_status()
 
         total = int(r.headers.get("content-length", 0))
@@ -140,82 +169,115 @@ def download_update(url: str, progress_cb: Callable = None) -> tuple:
                         progress_cb(pct, downloaded, total)
 
         return True, str(new_exe)
-
+    except requests.exceptions.SSLError as e:
+        return False, f"SSL-Fehler: {str(e)[:150]}"
     except Exception as e:
-        return False, str(e)
+        return False, str(e)[:200]
 
 
 def apply_update(new_exe_path: str) -> tuple:
-    """
-    Ersetzt die aktuelle .exe durch die neue.
-    Nutzt ein Batch-Skript das nach App-Ende läuft.
-    Returns (success, message).
-    """
     try:
         if getattr(sys, "frozen", False):
-            # Läuft als EXE
             current_exe = Path(sys.executable)
         else:
-            # Läuft als Python-Skript — Update nicht möglich
             return False, "Update nur in EXE-Version möglich"
 
-        # Batch-Skript erstellen
-        batch_path = Path(tempfile.gettempdir()) / "cleaner_update.bat"
-        batch_content = f"""@echo off
-chcp 65001 >nul
-title Cleaner Pro Update
+        new_path = Path(new_exe_path)
+        if not new_path.exists():
+            return False, f"Update-Datei nicht gefunden: {new_exe_path}"
 
-echo.
-echo ================================================
-echo   Cleaner Pro - Update wird installiert...
-echo ================================================
-echo.
+        script_path = Path(tempfile.gettempdir()) / "cleaner_update.ps1"
 
-REM Warte bis App beendet ist
-timeout /t 3 /nobreak >nul
+        cur = str(current_exe).replace("'", "''")
+        new = str(new_path).replace("'", "''")
 
-REM Alte EXE löschen
-:retry_delete
-del "{current_exe}" 2>nul
-if exist "{current_exe}" (
-    timeout /t 2 /nobreak >nul
-    goto retry_delete
-)
+        ps_script = f"""
+$ErrorActionPreference = 'SilentlyContinue'
+$currentExe = '{cur}'
+$newExe = '{new}'
+$backupExe = "$currentExe.old"
 
-REM Neue EXE kopieren
-copy /Y "{new_exe_path}" "{current_exe}"
-if errorlevel 1 (
-    echo FEHLER beim Kopieren!
-    pause
-    exit /b 1
-)
+Write-Host ""
+Write-Host "================================================"
+Write-Host "  Cleaner Pro - Update wird installiert..."
+Write-Host "================================================"
+Write-Host ""
 
-echo.
-echo Update erfolgreich! Starte App neu...
-timeout /t 2 /nobreak >nul
+Start-Sleep -Seconds 5
 
-REM Neue Version starten
-start "" "{current_exe}"
+if (-not (Test-Path $newExe)) {{
+    Write-Host "FEHLER: Neue EXE nicht gefunden:"
+    Write-Host $newExe
+    Read-Host "Enter zum Beenden"
+    exit 1
+}}
 
-REM Aufräumen
-del "%~f0"
+if (Test-Path $backupExe) {{
+    Remove-Item $backupExe -Force -ErrorAction SilentlyContinue
+}}
+
+try {{
+    Move-Item -Path $currentExe -Destination $backupExe -Force
+    Write-Host "  [1/4] Alte Version gesichert"
+}} catch {{
+    Write-Host "FEHLER: Alte EXE konnte nicht umbenannt werden!"
+    Read-Host "Enter zum Beenden"
+    exit 1
+}}
+
+try {{
+    Copy-Item -Path $newExe -Destination $currentExe -Force
+    Write-Host "  [2/4] Neue Version kopiert"
+}} catch {{
+    Write-Host "FEHLER beim Kopieren!"
+    Move-Item -Path $backupExe -Destination $currentExe -Force
+    Read-Host "Enter zum Beenden"
+    exit 1
+}}
+
+if (-not (Test-Path $currentExe)) {{
+    Write-Host "FEHLER: Neue EXE nicht angekommen!"
+    Move-Item -Path $backupExe -Destination $currentExe -Force
+    Read-Host "Enter zum Beenden"
+    exit 1
+}}
+
+Write-Host "  [3/4] Update erfolgreich!"
+Write-Host ""
+Write-Host "Starte App in 3 Sekunden..."
+Start-Sleep -Seconds 3
+
+Start-Process -FilePath $currentExe
+
+Write-Host "  [4/4] App gestartet"
+Start-Sleep -Seconds 2
+
+Remove-Item $backupExe -Force -ErrorAction SilentlyContinue
+Remove-Item $newExe -Force -ErrorAction SilentlyContinue
+Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
 """
-        batch_path.write_text(batch_content, encoding="utf-8")
+        script_path.write_text(ps_script, encoding="utf-8-sig")
 
-        # Batch ausführen und App beenden
         subprocess.Popen(
-            ["cmd.exe", "/c", str(batch_path)],
+            [
+                "powershell.exe", "-NoProfile",
+                "-ExecutionPolicy", "Bypass",
+                "-File", str(script_path)
+            ],
             creationflags=subprocess.CREATE_NEW_CONSOLE
         )
 
-        return True, "Update wird installiert. App startet neu..."
-
+        return True, (
+            "Update wird installiert.\n\n"
+            "1. Update-Fenster öffnet sich\n"
+            "2. App wird beendet\n"
+            "3. Neue Version startet automatisch"
+        )
     except Exception as e:
         return False, str(e)
 
 
 def get_download_size(url: str) -> int:
-    """Holt Dateigröße ohne Download."""
     if not HAS_REQUESTS:
         return 0
     try:
@@ -226,7 +288,6 @@ def get_download_size(url: str) -> int:
 
 
 def format_bytes(b: int) -> str:
-    """Formatiert Bytes in lesbare Größe."""
     for unit in ("B", "KB", "MB", "GB"):
         if b < 1024:
             return f"{b:.1f} {unit}"

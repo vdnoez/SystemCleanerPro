@@ -1,320 +1,568 @@
-"""Update-Seite — Prüfen, Herunterladen, Installieren."""
+"""Software-Updater via winget — mit Toasts."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QProgressBar, QMessageBox, QTextEdit, QApplication
+    QListWidget, QListWidgetItem, QApplication, QMessageBox,
+    QTabWidget, QLineEdit, QStackedWidget
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
 
-from src.ui.widgets import Card, PageHeader
+from src.ui.widgets import Card, PageHeader, EmptyState, LoadingState
 from src.ui.theme import Colors
-from src.core.config import APP_VERSION
-from src.modules.updater import (
-    check_for_update, download_update, apply_update,
-    get_download_size, format_bytes
+from src.ui.toast import toast
+from src.modules.software_updater import (
+    is_winget_available, list_upgradable, list_installed,
+    upgrade_package, upgrade_all, uninstall_package, search_package
 )
 
 
-# ═══════════════════════════════════════════════════════════════
-# WORKER
-# ═══════════════════════════════════════════════════════════════
-class CheckWorker(QThread):
-    finished_signal = pyqtSignal(dict)
+class ScanUpgradesWorker(QThread):
+    finished_signal = pyqtSignal(list)
 
     def run(self):
-        result = check_for_update()
-        self.finished_signal.emit(result)
+        try:
+            self.finished_signal.emit(list_upgradable())
+        except Exception:
+            self.finished_signal.emit([])
 
 
-class DownloadWorker(QThread):
-    progress = pyqtSignal(int, int, int)  # percent, done, total
+class ScanInstalledWorker(QThread):
+    finished_signal = pyqtSignal(list)
+
+    def run(self):
+        try:
+            self.finished_signal.emit(list_installed())
+        except Exception:
+            self.finished_signal.emit([])
+
+
+class UpgradeWorker(QThread):
+    progress = pyqtSignal(str)
     finished_signal = pyqtSignal(bool, str)
 
-    def __init__(self, url: str):
+    def __init__(self, package_id: str):
         super().__init__()
-        self.url = url
+        self.package_id = package_id
 
     def run(self):
-        ok, result = download_update(
-            self.url,
-            progress_cb=lambda p, d, t: self.progress.emit(p, d, t)
+        ok, msg = upgrade_package(
+            self.package_id, progress_cb=self.progress.emit
         )
-        self.finished_signal.emit(ok, result)
+        self.finished_signal.emit(ok, msg)
 
 
-# ═══════════════════════════════════════════════════════════════
-# SEITE
-# ═══════════════════════════════════════════════════════════════
-class UpdatePage(QWidget):
+class UpgradeAllWorker(QThread):
+    progress = pyqtSignal(str)
+    finished_signal = pyqtSignal(bool, str)
+
+    def run(self):
+        ok, msg = upgrade_all(progress_cb=self.progress.emit)
+        self.finished_signal.emit(ok, msg)
+
+
+class SoftwareUpdaterPage(QWidget):
     def __init__(self):
         super().__init__()
-        self._check_worker = None
-        self._download_worker = None
-        self._update_info = None
-        self._downloaded_path = ""
+        self._workers = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(36, 28, 36, 28)
-        layout.setSpacing(18)
+        layout.setSpacing(16)
 
         layout.addWidget(PageHeader(
-            "🔄 Updates",
-            "Prüft auf neue Versionen über GitHub"
+            "📦 Software-Updater",
+            "Prüft installierte Programme auf Updates via winget"
         ))
 
-        # ─── Status ───
-        status_card = Card("Aktuelle Version")
-        status_row = QHBoxLayout()
-        status_row.setSpacing(14)
+        self.status_card = Card("Status")
 
-        icon_lbl = QLabel("📦")
-        icon_lbl.setStyleSheet("font-size: 28px;")
-        status_row.addWidget(icon_lbl)
+        if not is_winget_available():
+            warn = QLabel(
+                "⚠️  <b>winget ist nicht installiert.</b><br>"
+                "Installiere 'App Installer' aus dem Microsoft Store."
+            )
+            warn.setWordWrap(True)
+            warn.setStyleSheet(
+                f"color: {Colors.TEXT_SECONDARY}; font-size: 13px;"
+            )
+            self.status_card.add(warn)
+            layout.addWidget(self.status_card)
+            layout.addStretch()
+            return
 
-        info_col = QVBoxLayout()
-        info_col.setSpacing(2)
-
-        self.version_lbl = QLabel(f"Version {APP_VERSION}")
-        self.version_lbl.setStyleSheet(
-            f"color: {Colors.TEXT_PRIMARY}; font-size: 16px; "
-            "font-weight: 800;"
-        )
-        info_col.addWidget(self.version_lbl)
-
-        self.status_lbl = QLabel("Klicke auf 'Nach Updates suchen'")
+        self.status_lbl = QLabel("Bereit. Klick auf 'Nach Updates suchen'.")
         self.status_lbl.setStyleSheet(
-            f"color: {Colors.TEXT_SECONDARY}; font-size: 12px;"
+            f"color: {Colors.TEXT_SECONDARY}; font-size: 13px;"
         )
-        info_col.addWidget(self.status_lbl)
+        self.status_lbl.setWordWrap(True)
+        self.status_card.add(self.status_lbl)
+        layout.addWidget(self.status_card)
 
-        status_row.addLayout(info_col, 1)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_upgrades_tab(), "🔄 Verfügbare Updates")
+        self.tabs.addTab(self._build_installed_tab(), "📦 Installierte Programme")
+        self.tabs.addTab(self._build_search_tab(), "🔍 Suche & Install")
+        layout.addWidget(self.tabs, 1)
 
-        self.check_btn = QPushButton("🔍 Nach Updates suchen")
-        self.check_btn.setMinimumHeight(42)
-        self.check_btn.clicked.connect(self.check_update)
-        status_row.addWidget(self.check_btn)
+    def _build_upgrades_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 16, 8, 8)
+        layout.setSpacing(12)
 
-        status_card.add_widget_direct(status_row)
-        layout.addWidget(status_card)
-
-        # ─── Update verfügbar Card (anfangs versteckt) ───
-        self.update_card = Card("✅ Update verfügbar")
-        self.update_card.setVisible(False)
-
-        self.update_info_lbl = QLabel("")
-        self.update_info_lbl.setWordWrap(True)
-        self.update_info_lbl.setStyleSheet(
-            f"color: {Colors.TEXT_PRIMARY}; font-size: 13px;"
-        )
-        self.update_card.add(self.update_info_lbl)
-
-        # Release Notes
-        notes_lbl = QLabel("Release Notes:")
-        notes_lbl.setStyleSheet(
-            f"color: {Colors.TEXT_SECONDARY}; font-size: 11px; "
-            "font-weight: 700; letter-spacing: 1px; padding-top: 6px;"
-        )
-        self.update_card.add(notes_lbl)
-
-        self.notes_view = QTextEdit()
-        self.notes_view.setReadOnly(True)
-        self.notes_view.setMaximumHeight(150)
-        self.update_card.add(self.notes_view)
-
-        # Progress Bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setVisible(False)
-        self.update_card.add(self.progress_bar)
-
-        self.progress_lbl = QLabel("")
-        self.progress_lbl.setStyleSheet(
-            f"color: {Colors.TEXT_SECONDARY}; font-size: 11px;"
-        )
-        self.progress_lbl.setVisible(False)
-        self.update_card.add(self.progress_lbl)
-
-        # Buttons
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
-        self.download_btn = QPushButton("📥 Jetzt herunterladen")
-        self.download_btn.setMinimumHeight(42)
-        self.download_btn.clicked.connect(self.download_update)
-        btn_row.addWidget(self.download_btn)
+        self.scan_upd_btn = QPushButton("🔍 Nach Updates suchen")
+        self.scan_upd_btn.setMinimumHeight(42)
+        self.scan_upd_btn.clicked.connect(self.scan_upgrades)
 
-        self.install_btn = QPushButton("⚡ Installieren & Neu starten")
-        self.install_btn.setMinimumHeight(42)
-        self.install_btn.setVisible(False)
-        self.install_btn.clicked.connect(self.install_update)
-        btn_row.addWidget(self.install_btn)
+        self.upgrade_all_btn = QPushButton("🚀 Alle aktualisieren")
+        self.upgrade_all_btn.setMinimumHeight(42)
+        self.upgrade_all_btn.setEnabled(False)
+        self.upgrade_all_btn.clicked.connect(self.do_upgrade_all)
 
-        self.open_release_btn = QPushButton("🌐 Release-Seite öffnen")
-        self.open_release_btn.setObjectName("SecondaryButton")
-        self.open_release_btn.setMinimumHeight(42)
-        self.open_release_btn.clicked.connect(self.open_release_page)
-        btn_row.addWidget(self.open_release_btn)
-
+        btn_row.addWidget(self.scan_upd_btn)
+        btn_row.addWidget(self.upgrade_all_btn)
         btn_row.addStretch()
-        self.update_card.add_widget_direct(btn_row)
+        layout.addLayout(btn_row)
 
-        layout.addWidget(self.update_card)
+        self.upgrades_stack = QStackedWidget()
 
-        # ─── Info-Card ───
-        info_card = Card("ℹ️ Info")
-        info_text = QLabel(
-            "Die App prüft auf GitHub nach neuen Releases. "
-            "Wenn eine neuere Version verfügbar ist, kannst du sie hier "
-            "herunterladen und installieren.<br><br>"
-            "<b>Automatische Updates:</b> Aktiviere die Option in den "
-            "Einstellungen, damit beim Start automatisch geprüft wird."
+        self.upgrades_empty = EmptyState(
+            icon="📦",
+            title="Noch nicht gescannt",
+            message="Klick auf 'Nach Updates suchen' um verfügbare Updates zu finden.",
         )
-        info_text.setWordWrap(True)
-        info_text.setStyleSheet(
-            f"color: {Colors.TEXT_SECONDARY}; font-size: 12px; "
-            "line-height: 1.6;"
-        )
-        info_card.add(info_text)
-        layout.addWidget(info_card)
+        self.upgrades_stack.addWidget(self.upgrades_empty)
 
-        layout.addStretch()
+        self.upgrades_loading = LoadingState("Suche Updates...")
+        self.upgrades_stack.addWidget(self.upgrades_loading)
 
-    # ═══════════════════════════════════════════════════════════
-    def check_update(self):
-        self.check_btn.setEnabled(False)
-        self.check_btn.setText("⏳ Prüfe...")
-        self.status_lbl.setText("Prüfe GitHub auf neue Version...")
+        self.upgrades_list = QListWidget()
+        self.upgrades_list.setMinimumHeight(340)
+        self.upgrades_list.setSpacing(4)
+        self.upgrades_stack.addWidget(self.upgrades_list)
+
+        self.upgrades_stack.setCurrentIndex(0)
+        layout.addWidget(self.upgrades_stack, 1)
+        return w
+
+    def scan_upgrades(self):
+        self.scan_upd_btn.setEnabled(False)
+        self.scan_upd_btn.setText("⏳ Scanne...")
+        self.upgrades_stack.setCurrentIndex(1)
+        self.upgrade_all_btn.setEnabled(False)
         QApplication.processEvents()
 
-        self._check_worker = CheckWorker()
-        self._check_worker.finished_signal.connect(self._on_check_done)
-        self._check_worker.start()
+        worker = ScanUpgradesWorker()
+        worker.finished_signal.connect(self._on_upgrades_done)
+        worker.start()
+        self._workers.append(worker)
 
-    def _on_check_done(self, result: dict):
-        self.check_btn.setEnabled(True)
-        self.check_btn.setText("🔍 Nach Updates suchen")
-        self._update_info = result
+    def _on_upgrades_done(self, packages: list):
+        self.scan_upd_btn.setEnabled(True)
+        self.scan_upd_btn.setText("🔍 Nach Updates suchen")
 
-        if result.get("error"):
-            self.status_lbl.setText(f"❌ {result['error']}")
-            self.status_lbl.setStyleSheet(
-                f"color: {Colors.DANGER}; font-size: 12px;"
+        if not packages:
+            self.status_lbl.setText("✅ Alle Programme sind aktuell!")
+            self.upgrades_empty = EmptyState(
+                icon="✨",
+                title="Alles aktuell!",
+                message="Keine Updates verfügbar — deine Programme sind auf dem neuesten Stand.",
             )
+            self.upgrades_stack.removeWidget(self.upgrades_stack.widget(0))
+            self.upgrades_stack.insertWidget(0, self.upgrades_empty)
+            self.upgrades_stack.setCurrentIndex(0)
+            toast.success("Alle Programme aktuell")
             return
 
-        if result.get("update_available"):
-            self.status_lbl.setText(
-                f"🎉 Update verfügbar: {result['latest_version']}"
-            )
-            self.status_lbl.setStyleSheet(
-                f"color: {Colors.SUCCESS}; font-size: 12px; "
+        self.status_lbl.setText(f"📦 {len(packages)} Updates verfügbar")
+        self.upgrade_all_btn.setEnabled(True)
+        toast.info(f"{len(packages)} Updates verfügbar")
+
+        self.upgrades_list.clear()
+
+        for pkg in packages:
+            name = pkg.get("name", "?")
+            current = pkg.get("current", "?")
+            available = pkg.get("available", "?")
+            pkg_id = pkg.get("id", "")
+
+            widget = QWidget()
+            widget.setMinimumHeight(56)
+            row = QHBoxLayout(widget)
+            row.setContentsMargins(12, 8, 12, 8)
+            row.setSpacing(12)
+
+            info_col = QVBoxLayout()
+            info_col.setSpacing(2)
+
+            name_lbl = QLabel(name)
+            name_lbl.setStyleSheet(
+                f"color: {Colors.TEXT_PRIMARY}; font-size: 13px; "
                 "font-weight: 700;"
             )
+            info_col.addWidget(name_lbl)
 
-            # Update-Card befüllen
-            size = get_download_size(result["download_url"])
-            size_str = f"  ·  {format_bytes(size)}" if size else ""
+            detail_lbl = QLabel(f"{current}   →   {available}")
+            detail_lbl.setStyleSheet(
+                f"color: {Colors.WARNING}; font-size: 11px;"
+            )
+            info_col.addWidget(detail_lbl)
 
-            self.update_info_lbl.setText(
-                f"<b>Neue Version:</b> {result['latest_version']}{size_str}<br>"
-                f"<b>Aktuell:</b> {result['current_version']}<br>"
-                f"<b>Veröffentlicht:</b> {result['published_at'][:10]}"
-            )
-            self.notes_view.setPlainText(
-                result.get("release_notes") or "Keine Release Notes."
-            )
-            self.update_card.setVisible(True)
-            self.download_btn.setVisible(True)
-            self.install_btn.setVisible(False)
-            self.progress_bar.setVisible(False)
-            self.progress_lbl.setVisible(False)
-        else:
-            self.status_lbl.setText(
-                f"✅ Du hast die neueste Version ({result['current_version']})"
-            )
-            self.status_lbl.setStyleSheet(
-                f"color: {Colors.SUCCESS}; font-size: 12px;"
-            )
-            self.update_card.setVisible(False)
+            row.addLayout(info_col, 1)
 
-    def download_update(self):
-        if not self._update_info or not self._update_info.get("download_url"):
+            upd_btn = QPushButton("🔄 Update")
+            upd_btn.setMinimumHeight(36)
+            upd_btn.setMinimumWidth(120)
+            upd_btn.clicked.connect(
+                lambda _, i=pkg_id, n=name: self.do_upgrade_one(i, n)
+            )
+            row.addWidget(upd_btn)
+
+            item = QListWidgetItem()
+            item.setSizeHint(QSize(0, 60))
+            self.upgrades_list.addItem(item)
+            self.upgrades_list.setItemWidget(item, widget)
+
+        self.upgrades_stack.setCurrentIndex(2)
+
+    def _build_installed_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 16, 8, 8)
+        layout.setSpacing(12)
+
+        btn_row = QHBoxLayout()
+        self.scan_inst_btn = QPushButton("🔍 Installierte Programme laden")
+        self.scan_inst_btn.setMinimumHeight(42)
+        self.scan_inst_btn.clicked.connect(self.scan_installed)
+        btn_row.addWidget(self.scan_inst_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self.installed_stack = QStackedWidget()
+
+        self.installed_empty = EmptyState(
+            icon="📦",
+            title="Noch nicht geladen",
+            message="Klick auf 'Installierte Programme laden'.",
+        )
+        self.installed_stack.addWidget(self.installed_empty)
+
+        self.installed_loading = LoadingState("Lade Programme...")
+        self.installed_stack.addWidget(self.installed_loading)
+
+        self.installed_list = QListWidget()
+        self.installed_list.setMinimumHeight(340)
+        self.installed_list.setSpacing(4)
+        self.installed_stack.addWidget(self.installed_list)
+
+        self.installed_stack.setCurrentIndex(0)
+        layout.addWidget(self.installed_stack, 1)
+        return w
+
+    def scan_installed(self):
+        self.scan_inst_btn.setEnabled(False)
+        self.scan_inst_btn.setText("⏳ Lade...")
+        self.installed_stack.setCurrentIndex(1)
+        QApplication.processEvents()
+
+        worker = ScanInstalledWorker()
+        worker.finished_signal.connect(self._on_installed_done)
+        worker.start()
+        self._workers.append(worker)
+
+    def _on_installed_done(self, packages: list):
+        self.scan_inst_btn.setEnabled(True)
+        self.scan_inst_btn.setText("🔍 Installierte Programme laden")
+
+        if not packages:
+            self.installed_stack.setCurrentIndex(0)
+            toast.warning("Keine Programme gefunden")
             return
 
-        self.download_btn.setEnabled(False)
-        self.download_btn.setText("⏳ Lade herunter...")
-        self.progress_bar.setValue(0)
-        self.progress_bar.setVisible(True)
-        self.progress_lbl.setVisible(True)
-        self.progress_lbl.setText("Starte Download...")
+        self.status_lbl.setText(f"📦 {len(packages)} Programme installiert")
+        toast.info(f"{len(packages)} Programme geladen")
 
-        self._download_worker = DownloadWorker(
-            self._update_info["download_url"]
+        self.installed_list.clear()
+
+        for pkg in packages:
+            name = pkg.get("name", "?")
+            version = pkg.get("version", "?")
+            pkg_id = pkg.get("id", "")
+
+            widget = QWidget()
+            widget.setMinimumHeight(56)
+            row = QHBoxLayout(widget)
+            row.setContentsMargins(12, 8, 12, 8)
+            row.setSpacing(12)
+
+            info_col = QVBoxLayout()
+            info_col.setSpacing(2)
+
+            name_lbl = QLabel(name)
+            name_lbl.setStyleSheet(
+                f"color: {Colors.TEXT_PRIMARY}; font-size: 13px; "
+                "font-weight: 700;"
+            )
+            info_col.addWidget(name_lbl)
+
+            detail_lbl = QLabel(f"Version: {version}")
+            detail_lbl.setStyleSheet(
+                f"color: {Colors.TEXT_MUTED}; font-size: 11px;"
+            )
+            info_col.addWidget(detail_lbl)
+
+            row.addLayout(info_col, 1)
+
+            uninst_btn = QPushButton("🗑️ Deinstallieren")
+            uninst_btn.setObjectName("DangerButton")
+            uninst_btn.setMinimumHeight(36)
+            uninst_btn.setMinimumWidth(140)
+            uninst_btn.clicked.connect(
+                lambda _, i=pkg_id, n=name: self.do_uninstall(i, n)
+            )
+            row.addWidget(uninst_btn)
+
+            item = QListWidgetItem()
+            item.setSizeHint(QSize(0, 60))
+            self.installed_list.addItem(item)
+            self.installed_list.setItemWidget(item, widget)
+
+        self.installed_stack.setCurrentIndex(2)
+
+    def _build_search_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(8, 16, 8, 8)
+        layout.setSpacing(12)
+
+        search_row = QHBoxLayout()
+        search_row.setSpacing(10)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText(
+            "🔍 Suche ein Programm (z. B. 'firefox', 'vscode'...)"
         )
-        self._download_worker.progress.connect(self._on_progress)
-        self._download_worker.finished_signal.connect(self._on_download_done)
-        self._download_worker.start()
+        self.search_input.setMinimumHeight(42)
+        self.search_input.returnPressed.connect(self.do_search)
 
-    def _on_progress(self, percent: int, done: int, total: int):
-        self.progress_bar.setValue(percent)
-        self.progress_lbl.setText(
-            f"{percent}%  ·  {format_bytes(done)} / {format_bytes(total)}"
+        search_btn = QPushButton("Suchen")
+        search_btn.setMinimumHeight(42)
+        search_btn.setMinimumWidth(120)
+        search_btn.clicked.connect(self.do_search)
+
+        search_row.addWidget(self.search_input, 1)
+        search_row.addWidget(search_btn)
+        layout.addLayout(search_row)
+
+        self.search_stack = QStackedWidget()
+
+        self.search_empty = EmptyState(
+            icon="🔍",
+            title="Programm suchen",
+            message="Gib einen Programmnamen ein um ihn zu finden und zu installieren.",
         )
+        self.search_stack.addWidget(self.search_empty)
 
-    def _on_download_done(self, ok: bool, result: str):
-        self.download_btn.setEnabled(True)
-        self.download_btn.setText("📥 Jetzt herunterladen")
+        self.search_list = QListWidget()
+        self.search_list.setMinimumHeight(340)
+        self.search_list.setSpacing(4)
+        self.search_stack.addWidget(self.search_list)
 
-        if not ok:
-            self.progress_lbl.setText(f"❌ Fehler: {result}")
-            QMessageBox.warning(self, "Download-Fehler", str(result))
+        self.search_stack.setCurrentIndex(0)
+        layout.addWidget(self.search_stack, 1)
+        return w
+
+    def do_search(self):
+        query = self.search_input.text().strip()
+        if not query:
             return
 
-        self._downloaded_path = result
-        self.progress_bar.setValue(100)
-        self.progress_lbl.setText("✅ Download fertig!")
+        self.search_list.clear()
+        self.search_list.addItem(f"Suche nach '{query}'...")
+        QApplication.processEvents()
 
-        self.download_btn.setVisible(False)
-        self.install_btn.setVisible(True)
+        try:
+            results = search_package(query)
+        except Exception as e:
+            toast.error(f"Fehler: {e}")
+            return
 
-        QMessageBox.information(
-            self, "Download fertig",
-            "Die neue Version wurde heruntergeladen.\n\n"
-            "Klicke auf '⚡ Installieren & Neu starten' um sie zu "
-            "installieren.\n\n"
-            "⚠️  Die App wird automatisch beendet und nach dem "
-            "Update neu gestartet."
-        )
+        self.search_list.clear()
 
-    def install_update(self):
-        if not self._downloaded_path:
+        if not results:
+            self.search_empty = EmptyState(
+                icon="❌",
+                title="Keine Ergebnisse",
+                message=f"Für '{query}' wurden keine Programme gefunden.",
+            )
+            self.search_stack.removeWidget(self.search_stack.widget(0))
+            self.search_stack.insertWidget(0, self.search_empty)
+            self.search_stack.setCurrentIndex(0)
+            return
+
+        toast.info(f"{len(results)} Ergebnisse für '{query}'")
+
+        for pkg in results:
+            name = pkg.get("name", "?")
+            pkg_id = pkg.get("id", "")
+            version = pkg.get("version", "")
+
+            widget = QWidget()
+            widget.setMinimumHeight(56)
+            row = QHBoxLayout(widget)
+            row.setContentsMargins(12, 8, 12, 8)
+            row.setSpacing(12)
+
+            info_col = QVBoxLayout()
+            info_col.setSpacing(2)
+
+            name_lbl = QLabel(name)
+            name_lbl.setStyleSheet(
+                f"color: {Colors.TEXT_PRIMARY}; font-size: 13px; "
+                "font-weight: 700;"
+            )
+            info_col.addWidget(name_lbl)
+
+            detail_lbl = QLabel(
+                f"{pkg_id}" + (f"  ·  {version}" if version else "")
+            )
+            detail_lbl.setStyleSheet(
+                f"color: {Colors.TEXT_MUTED}; font-size: 11px;"
+            )
+            info_col.addWidget(detail_lbl)
+
+            row.addLayout(info_col, 1)
+
+            install_btn = QPushButton("📥 Installieren")
+            install_btn.setMinimumHeight(36)
+            install_btn.setMinimumWidth(140)
+            install_btn.clicked.connect(
+                lambda _, i=pkg_id: self.do_install(i)
+            )
+            row.addWidget(install_btn)
+
+            item = QListWidgetItem()
+            item.setSizeHint(QSize(0, 60))
+            self.search_list.addItem(item)
+            self.search_list.setItemWidget(item, widget)
+
+        self.search_stack.setCurrentIndex(1)
+
+    def do_upgrade_one(self, package_id: str, name: str):
+        if not package_id:
             return
 
         reply = QMessageBox.question(
-            self, "Update installieren",
-            "Jetzt installieren?\n\n"
-            "Die App wird beendet und nach dem Update neu gestartet.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
+            self, "Update starten",
+            f"'{name}' jetzt aktualisieren?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        ok, msg = apply_update(self._downloaded_path)
-        if ok:
-            QMessageBox.information(self, "Update startet", msg)
-            QApplication.quit()
-        else:
-            QMessageBox.warning(self, "Fehler", msg)
+        self.status_lbl.setText(f"⏳ Update läuft: {name}...")
+        toast.info(f"Update läuft: {name}")
 
-    def open_release_page(self):
-        if not self._update_info:
+        worker = UpgradeWorker(package_id)
+        worker.progress.connect(self.status_lbl.setText)
+        worker.finished_signal.connect(self._on_upgrade_done)
+        worker.start()
+        self._workers.append(worker)
+
+    def do_upgrade_all(self):
+        reply = QMessageBox.question(
+            self, "Alle Updates",
+            "Alle verfügbaren Updates jetzt installieren?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
             return
-        url = self._update_info.get("release_url", "")
-        if not url:
+
+        self.status_lbl.setText("⏳ Alle Updates werden installiert...")
+        toast.info("Updates werden installiert...")
+        self.upgrade_all_btn.setEnabled(False)
+
+        worker = UpgradeAllWorker()
+        worker.progress.connect(self.status_lbl.setText)
+        worker.finished_signal.connect(self._on_upgrade_all_done)
+        worker.start()
+        self._workers.append(worker)
+
+    def _on_upgrade_done(self, ok: bool, msg: str):
+        self.status_lbl.setText(msg)
+        if ok:
+            toast.success("Update erfolgreich installiert")
+            self.scan_upgrades()
+        else:
+            toast.error(f"Update fehlgeschlagen: {msg[:80]}")
+
+    def _on_upgrade_all_done(self, ok: bool, msg: str):
+        self.status_lbl.setText(msg)
+        self.upgrade_all_btn.setEnabled(True)
+        if ok:
+            toast.success("Alle Updates installiert")
+        else:
+            toast.error(f"Fehler: {msg[:80]}")
+        self.scan_upgrades()
+
+    def do_uninstall(self, package_id: str, name: str):
+        if not package_id:
             return
+
+        reply = QMessageBox.warning(
+            self, "Deinstallieren",
+            f"'{name}' wirklich deinstallieren?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self.status_lbl.setText(f"⏳ Deinstalliere: {name}...")
+        QApplication.processEvents()
+
+        ok, msg = uninstall_package(package_id)
+        self.status_lbl.setText(msg)
+
+        if ok:
+            toast.success(f"{name} deinstalliert")
+            self.scan_installed()
+        else:
+            toast.error(f"Fehlgeschlagen: {msg[:80]}")
+
+    def do_install(self, package_id: str):
+        if not package_id:
+            return
+
+        reply = QMessageBox.question(
+            self, "Installieren",
+            f"'{package_id}' jetzt installieren?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self.status_lbl.setText(f"⏳ Installiere {package_id}...")
+        toast.info(f"Installiere {package_id}...")
+        QApplication.processEvents()
+
+        import subprocess
         try:
-            import subprocess
-            subprocess.Popen(["start", url], shell=True)
+            r = subprocess.run(
+                ["winget", "install", "--id", package_id,
+                 "--silent", "--accept-package-agreements",
+                 "--accept-source-agreements"],
+                capture_output=True, text=True, timeout=600,
+                encoding="utf-8", errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW
+                if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+            )
+            if r.returncode == 0:
+                toast.success(f"{package_id} installiert")
+            else:
+                toast.error(f"Fehler: {(r.stderr or '')[:80]}")
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", str(e))
+            toast.error(f"Fehler: {e}")

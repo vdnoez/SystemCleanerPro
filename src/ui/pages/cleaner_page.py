@@ -1,15 +1,18 @@
-"""Cleaner-Seite — aufgeräumt."""
+"""Cleaner-Seite — mit Toasts und EmptyStates."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget,
-    QListWidgetItem, QLabel, QMessageBox, QProgressDialog, QCheckBox,
-    QApplication
+    QListWidgetItem, QLabel, QMessageBox, QProgressDialog,
+    QCheckBox, QApplication, QStackedWidget
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from pathlib import Path
 
-from src.ui.widgets import Card, PageHeader
+from src.ui.widgets import Card, PageHeader, EmptyState, LoadingState
 from src.ui.theme import Colors
-from src.modules.dev_tools import find_dev_temp, dir_size, human_size, delete_path
+from src.ui.toast import toast
+from src.modules.dev_tools import (
+    find_dev_temp, dir_size, human_size, delete_path
+)
 from src.core.config_loader import get_windows_temp_dirs, reload_all
 
 
@@ -53,7 +56,7 @@ class CleanerPage(QWidget):
             "Findet und entfernt unnötige Dateien — sicher & rückholbar"
         ))
 
-        # ─── Scan-Buttons ───
+        # Scan-Buttons
         scan_row = QHBoxLayout()
         scan_row.setSpacing(10)
 
@@ -71,21 +74,40 @@ class CleanerPage(QWidget):
         scan_row.addStretch()
         layout.addLayout(scan_row)
 
-        # ─── Status-Zeile ───
+        # Status
         self.info_label = QLabel("Bereit. Klick auf 'Scannen'.")
         self.info_label.setStyleSheet(
             f"color: {Colors.TEXT_SECONDARY}; font-size: 13px;"
         )
         layout.addWidget(self.info_label)
 
-        # ─── Ergebnis-Liste ───
+        # Ergebnis-Bereich (Stacked: Liste / Empty / Loading)
         result_card = Card("Gefundene Ordner")
+        self.result_stack = QStackedWidget()
+
+        # Page 0: Empty-State
+        self.empty_state = EmptyState(
+            icon="🧹",
+            title="Noch nichts gescannt",
+            message="Klick auf 'Windows Temp scannen' oder 'Dev-Ordner scannen' "
+                    "um Dateien zu finden.",
+        )
+        self.result_stack.addWidget(self.empty_state)
+
+        # Page 1: Loading
+        self.loading_state = LoadingState("Scanne...")
+        self.result_stack.addWidget(self.loading_state)
+
+        # Page 2: Liste
         self.list_widget = QListWidget()
-        self.list_widget.setMinimumHeight(240)
-        result_card.add(self.list_widget)
+        self.list_widget.setMinimumHeight(280)
+        self.result_stack.addWidget(self.list_widget)
+
+        self.result_stack.setCurrentIndex(0)
+        result_card.add(self.result_stack)
         layout.addWidget(result_card)
 
-        # ─── Action-Zeile ───
+        # Action-Zeile
         action_row = QHBoxLayout()
         action_row.setSpacing(10)
 
@@ -120,8 +142,7 @@ class CleanerPage(QWidget):
         if self._worker and self._worker.isRunning():
             return
 
-        self.list_widget.clear()
-        self._found.clear()
+        self.result_stack.setCurrentIndex(1)
         self.info_label.setText(f"Scanne... ({mode})")
         QApplication.processEvents()
 
@@ -132,13 +153,23 @@ class CleanerPage(QWidget):
 
     def on_scan_done(self, results: list):
         self._found = results
-        self.list_widget.clear()
 
         if not results:
             self.info_label.setText("✅ Nichts zu löschen gefunden.")
             self.selected_label.setText("0 ausgewählt")
+            self.empty_state = EmptyState(
+                icon="✨",
+                title="Alles sauber!",
+                message="Keine unnötigen Dateien gefunden. Dein System ist aufgeräumt.",
+            )
+            self.result_stack.removeWidget(self.result_stack.widget(0))
+            self.result_stack.insertWidget(0, self.empty_state)
+            self.result_stack.setCurrentIndex(0)
+            toast.success("Alles sauber — keine Dateien zu löschen")
             return
 
+        # Liste füllen
+        self.list_widget.clear()
         total = 0
         for path, size, category in results:
             total += size
@@ -150,6 +181,8 @@ class CleanerPage(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, (path, size))
             self.list_widget.addItem(item)
 
+        self.result_stack.setCurrentIndex(2)
+
         self.info_label.setText(
             f"✅ {len(results)} Ordner gefunden  ·  Gesamt: {human_size(total)}"
         )
@@ -158,6 +191,8 @@ class CleanerPage(QWidget):
         except TypeError:
             pass
         self.update_selected_label()
+
+        toast.info(f"{len(results)} Ordner gefunden · {human_size(total)}")
 
     def toggle_all(self, state):
         check = (Qt.CheckState.Checked
@@ -191,23 +226,17 @@ class CleanerPage(QWidget):
                     selected.append(data[0])
 
         if not selected:
-            QMessageBox.information(
-                self, "Nichts ausgewählt",
-                "Bitte wähle mindestens einen Ordner aus."
-            )
+            toast.warning("Bitte wähle mindestens einen Ordner aus.")
             return
 
         mode_text = (
-            "in den Papierkorb verschieben (rückholbar)"
+            "in den Papierkorb verschieben"
             if to_trash
-            else "ENDGÜLTIG löschen (nicht rückholbar!)"
+            else "ENDGÜLTIG löschen"
         )
         reply = QMessageBox.question(
             self, "Bestätigung",
-            f"{len(selected)} Ordner {mode_text}?\n\n"
-            + "\n".join(f"• {p.name}" for p in selected[:5])
-            + (f"\n... und {len(selected) - 5} weitere"
-               if len(selected) > 5 else ""),
+            f"{len(selected)} Ordner {mode_text}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -247,18 +276,23 @@ class CleanerPage(QWidget):
 
         progress.setValue(len(selected))
 
-        msg = (
-            f"✅ {ok_count} Ordner gelöscht\n"
-            f"❌ {fail_count} fehlgeschlagen\n"
-            f"💾 Freigegeben: {human_size(freed)}"
-        )
-        if errors:
-            msg += "\n\nFehler:\n" + "\n".join(errors[:5])
+        if ok_count > 0:
+            toast.success(
+                f"{ok_count} Ordner gelöscht · {human_size(freed)} freigegeben"
+            )
+        if fail_count > 0:
+            toast.error(f"{fail_count} Ordner konnten nicht gelöscht werden")
 
-        QMessageBox.information(self, "Fertig", msg)
         self.info_label.setText(
-            f"Fertig. {human_size(freed)} freigegeben."
+            f"Fertig · {human_size(freed)} freigegeben"
         )
-        self.list_widget.clear()
+        self.result_stack.setCurrentIndex(0)
+        self.empty_state = EmptyState(
+            icon="✅",
+            title="Cleanup abgeschlossen",
+            message=f"{ok_count} Ordner gelöscht · {human_size(freed)} freigegeben",
+        )
+        self.result_stack.removeWidget(self.result_stack.widget(0))
+        self.result_stack.insertWidget(0, self.empty_state)
         self._found.clear()
         self.selected_label.setText("0 ausgewählt")

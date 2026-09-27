@@ -1,128 +1,45 @@
-"""Theme-System mit 6 umschaltbaren Themes."""
+"""Slate Design — ruhig, luftig, konsistent."""
 
 
-# ═══════════════════════════════════════════════════════════════
-# THEME-DEFINITIONEN
-# ═══════════════════════════════════════════════════════════════
 THEMES = {
-    "aurora": {
-        "name": "Aurora (Standard)",
-        "BG_BASE": "#0a0e1a",
-        "BG_GRADIENT_1": "#0f1729",
-        "BG_GRADIENT_2": "#1a1f3a",
-        "BG_ELEVATED": "#141a2e",
-        "BG_GLASS": "#1a2140",
-        "BG_OVERLAY": "#1f2844",
-        "BG_SIDEBAR": "#0d1320",
-        "ACCENT": "#06b6d4",
-        "ACCENT_2": "#3b82f6",
-        "ACCENT_HOVER": "#22d3ee",
-        "ACCENT_DARK": "#0891b2",
-        "ACCENT_GLOW": "#67e8f9",
+    "slate": {
+        "name": "Slate (Standard)",
+        "BG_BASE": "#0f1116",
+        "BG_ELEVATED": "#181b22",
+        "BG_OVERLAY": "#1e222b",
+        "BG_SIDEBAR": "#0a0c10",
+        "BG_GRADIENT_1": "#0f1116",
+        "BG_GRADIENT_2": "#141721",
+        "ACCENT": "#6366f1",
+        "ACCENT_HOVER": "#818cf8",
+        "ACCENT_DARK": "#4f46e5",
+        "ACCENT_GLOW": "#a5b4fc",
+        "ACCENT_2": "#8b5cf6",
         "SUCCESS": "#10b981",
         "WARNING": "#f59e0b",
         "DANGER": "#ef4444",
         "INFO": "#60a5fa",
-        "TEXT_PRIMARY": "#f0f9ff",
-        "TEXT_SECONDARY": "#94a3b8",
-        "TEXT_MUTED": "#475569",
-        "BORDER": "#1e2a4a",
-        "BORDER_LIGHT": "#2d3d66",
-        "FONT": "Segoe UI Variable, Segoe UI, sans-serif",
+        "TEXT_PRIMARY": "#e6e8ec",
+        "TEXT_SECONDARY": "#8a92a6",
+        "TEXT_MUTED": "#4a5163",
+        "BORDER": "#262a35",
+        "BORDER_LIGHT": "#363b4a",
+        "FONT": "Segoe UI Variable Display, Segoe UI, sans-serif",
         "MONO": "Cascadia Code, Consolas, monospace",
     },
-    "sunset": {
-        "name": "Sunset (Orange-Pink)",
-        "BG_BASE": "#1a0f0a",
-        "BG_GRADIENT_1": "#2a1410",
-        "BG_GRADIENT_2": "#3a1a1f",
-        "BG_ELEVATED": "#281410",
-        "BG_GLASS": "#331a18",
-        "BG_OVERLAY": "#3d2020",
-        "BG_SIDEBAR": "#1f0f0a",
-        "ACCENT": "#f97316",
-        "ACCENT_2": "#ec4899",
-        "ACCENT_HOVER": "#fb923c",
-        "ACCENT_DARK": "#ea580c",
-        "ACCENT_GLOW": "#fdba74",
-        "SUCCESS": "#10b981",
-        "WARNING": "#fbbf24",
-        "DANGER": "#ef4444",
-        "INFO": "#60a5fa",
-        "TEXT_PRIMARY": "#fff7ed",
-        "TEXT_SECONDARY": "#a8998a",
-        "TEXT_MUTED": "#695a4a",
-        "BORDER": "#3a201a",
-        "BORDER_LIGHT": "#5c3428",
-        "FONT": "Segoe UI Variable, Segoe UI, sans-serif",
-        "MONO": "Cascadia Code, Consolas, monospace",
-    },
-    "emerald": {
-        "name": "Emerald (Grün)",
-        "BG_BASE": "#051612",
-        "BG_GRADIENT_1": "#082019",
-        "BG_GRADIENT_2": "#0d2a20",
-        "BG_ELEVATED": "#0a1e18",
-        "BG_GLASS": "#0f2820",
-        "BG_OVERLAY": "#133328",
-        "BG_SIDEBAR": "#061a14",
-        "ACCENT": "#10b981",
-        "ACCENT_2": "#06b6d4",
-        "ACCENT_HOVER": "#34d399",
-        "ACCENT_DARK": "#059669",
-        "ACCENT_GLOW": "#6ee7b7",
-        "SUCCESS": "#10b981",
-        "WARNING": "#f59e0b",
-        "DANGER": "#ef4444",
-        "INFO": "#60a5fa",
-        "TEXT_PRIMARY": "#ecfdf5",
-        "TEXT_SECONDARY": "#7a9d8f",
-        "TEXT_MUTED": "#3d5d50",
-        "BORDER": "#0f2a22",
-        "BORDER_LIGHT": "#1d4536",
-        "FONT": "Segoe UI Variable, Segoe UI, sans-serif",
-        "MONO": "Cascadia Code, Consolas, monospace",
-    },
-    "royal": {
-        "name": "Royal (Violett)",
-        "BG_BASE": "#0d0620",
-        "BG_GRADIENT_1": "#150a2e",
-        "BG_GRADIENT_2": "#1f1140",
-        "BG_ELEVATED": "#120a28",
-        "BG_GLASS": "#1a0f38",
-        "BG_OVERLAY": "#22154a",
-        "BG_SIDEBAR": "#0a0518",
-        "ACCENT": "#a855f7",
-        "ACCENT_2": "#ec4899",
-        "ACCENT_HOVER": "#c084fc",
-        "ACCENT_DARK": "#9333ea",
-        "ACCENT_GLOW": "#d8b4fe",
-        "SUCCESS": "#10b981",
-        "WARNING": "#f59e0b",
-        "DANGER": "#ef4444",
-        "INFO": "#60a5fa",
-        "TEXT_PRIMARY": "#faf5ff",
-        "TEXT_SECONDARY": "#9d8ab8",
-        "TEXT_MUTED": "#5c4a7a",
-        "BORDER": "#1e1040",
-        "BORDER_LIGHT": "#331a5e",
-        "FONT": "Segoe UI Variable, Segoe UI, sans-serif",
-        "MONO": "Cascadia Code, Consolas, monospace",
-    },
-    "mono": {
-        "name": "Mono (Schwarz-Weiß)",
+    "carbon": {
+        "name": "Carbon (Schwarz)",
         "BG_BASE": "#0a0a0a",
-        "BG_GRADIENT_1": "#101010",
-        "BG_GRADIENT_2": "#161616",
-        "BG_ELEVATED": "#121212",
-        "BG_GLASS": "#181818",
-        "BG_OVERLAY": "#1f1f1f",
-        "BG_SIDEBAR": "#060606",
-        "ACCENT": "#e5e5e5",
-        "ACCENT_2": "#a3a3a3",
-        "ACCENT_HOVER": "#f5f5f5",
+        "BG_ELEVATED": "#131313",
+        "BG_OVERLAY": "#1a1a1a",
+        "BG_SIDEBAR": "#050505",
+        "BG_GRADIENT_1": "#0a0a0a",
+        "BG_GRADIENT_2": "#111111",
+        "ACCENT": "#ffffff",
+        "ACCENT_HOVER": "#e5e5e5",
         "ACCENT_DARK": "#a3a3a3",
-        "ACCENT_GLOW": "#ffffff",
+        "ACCENT_GLOW": "#f5f5f5",
+        "ACCENT_2": "#d4d4d4",
         "SUCCESS": "#22c55e",
         "WARNING": "#eab308",
         "DANGER": "#ef4444",
@@ -131,24 +48,73 @@ THEMES = {
         "TEXT_SECONDARY": "#737373",
         "TEXT_MUTED": "#404040",
         "BORDER": "#1f1f1f",
-        "BORDER_LIGHT": "#333333",
-        "FONT": "Segoe UI Variable, Segoe UI, sans-serif",
+        "BORDER_LIGHT": "#2e2e2e",
+        "FONT": "Segoe UI Variable Display, Segoe UI, sans-serif",
         "MONO": "Cascadia Code, Consolas, monospace",
     },
-    "light_aurora": {
-        "name": "Light Aurora (Hell)",
-        "BG_BASE": "#f0f4f8",
-        "BG_GRADIENT_1": "#f8fafc",
-        "BG_GRADIENT_2": "#e0f2fe",
+    "ocean": {
+        "name": "Ocean (Blau)",
+        "BG_BASE": "#0a141c",
+        "BG_ELEVATED": "#0f1e28",
+        "BG_OVERLAY": "#132833",
+        "BG_SIDEBAR": "#061018",
+        "BG_GRADIENT_1": "#0a141c",
+        "BG_GRADIENT_2": "#0f1e2a",
+        "ACCENT": "#0ea5e9",
+        "ACCENT_HOVER": "#38bdf8",
+        "ACCENT_DARK": "#0284c7",
+        "ACCENT_GLOW": "#7dd3fc",
+        "ACCENT_2": "#06b6d4",
+        "SUCCESS": "#10b981",
+        "WARNING": "#f59e0b",
+        "DANGER": "#ef4444",
+        "INFO": "#3b82f6",
+        "TEXT_PRIMARY": "#e0f2fe",
+        "TEXT_SECONDARY": "#7a9bb3",
+        "TEXT_MUTED": "#3f5c70",
+        "BORDER": "#1a3240",
+        "BORDER_LIGHT": "#264658",
+        "FONT": "Segoe UI Variable Display, Segoe UI, sans-serif",
+        "MONO": "Cascadia Code, Consolas, monospace",
+    },
+    "forest": {
+        "name": "Forest (Grün)",
+        "BG_BASE": "#0c1510",
+        "BG_ELEVATED": "#111f18",
+        "BG_OVERLAY": "#162a20",
+        "BG_SIDEBAR": "#08100b",
+        "BG_GRADIENT_1": "#0c1510",
+        "BG_GRADIENT_2": "#101e17",
+        "ACCENT": "#10b981",
+        "ACCENT_HOVER": "#34d399",
+        "ACCENT_DARK": "#059669",
+        "ACCENT_GLOW": "#6ee7b7",
+        "ACCENT_2": "#22c55e",
+        "SUCCESS": "#10b981",
+        "WARNING": "#f59e0b",
+        "DANGER": "#ef4444",
+        "INFO": "#3b82f6",
+        "TEXT_PRIMARY": "#ecfdf5",
+        "TEXT_SECONDARY": "#7a9e8c",
+        "TEXT_MUTED": "#3d5e50",
+        "BORDER": "#163228",
+        "BORDER_LIGHT": "#1f4738",
+        "FONT": "Segoe UI Variable Display, Segoe UI, sans-serif",
+        "MONO": "Cascadia Code, Consolas, monospace",
+    },
+    "light": {
+        "name": "Light (Hell)",
+        "BG_BASE": "#f5f7fa",
         "BG_ELEVATED": "#ffffff",
-        "BG_GLASS": "#f1f5f9",
-        "BG_OVERLAY": "#e2e8f0",
-        "BG_SIDEBAR": "#e2e8f0",
-        "ACCENT": "#0891b2",
-        "ACCENT_2": "#3b82f6",
-        "ACCENT_HOVER": "#06b6d4",
-        "ACCENT_DARK": "#0e7490",
-        "ACCENT_GLOW": "#67e8f9",
+        "BG_OVERLAY": "#e8ecf1",
+        "BG_SIDEBAR": "#e5e8ed",
+        "BG_GRADIENT_1": "#f5f7fa",
+        "BG_GRADIENT_2": "#eef1f5",
+        "ACCENT": "#6366f1",
+        "ACCENT_HOVER": "#818cf8",
+        "ACCENT_DARK": "#4f46e5",
+        "ACCENT_GLOW": "#a5b4fc",
+        "ACCENT_2": "#8b5cf6",
         "SUCCESS": "#059669",
         "WARNING": "#d97706",
         "DANGER": "#dc2626",
@@ -156,18 +122,15 @@ THEMES = {
         "TEXT_PRIMARY": "#0f172a",
         "TEXT_SECONDARY": "#475569",
         "TEXT_MUTED": "#94a3b8",
-        "BORDER": "#cbd5e1",
-        "BORDER_LIGHT": "#94a3b8",
-        "FONT": "Segoe UI Variable, Segoe UI, sans-serif",
+        "BORDER": "#d1d8e0",
+        "BORDER_LIGHT": "#b8c0cc",
+        "FONT": "Segoe UI Variable Display, Segoe UI, sans-serif",
         "MONO": "Cascadia Code, Consolas, monospace",
     },
 }
 
 
-# ═══════════════════════════════════════════════════════════════
-# AKTIVES THEME
-# ═══════════════════════════════════════════════════════════════
-_current = "aurora"
+_current = "slate"
 
 
 def set_theme(name: str):
@@ -181,7 +144,7 @@ def get_theme_name() -> str:
 
 
 def get_theme() -> dict:
-    return THEMES.get(_current, THEMES["aurora"])
+    return THEMES.get(_current, THEMES["slate"])
 
 
 def list_themes() -> list:
@@ -197,7 +160,7 @@ class _ColorsProxy:
 Colors = _ColorsProxy()
 
 
-FONT_FAMILY = "Segoe UI Variable, Segoe UI, sans-serif"
+FONT_FAMILY = "Segoe UI Variable Display, Segoe UI, sans-serif"
 FONT_MONO = "Cascadia Code, Consolas, monospace"
 
 
@@ -214,9 +177,6 @@ class Icons:
     SETTINGS = "⚙"
 
 
-# ═══════════════════════════════════════════════════════════════
-# STYLESHEET
-# ═══════════════════════════════════════════════════════════════
 def get_stylesheet() -> str:
     c = get_theme()
     return f"""
@@ -235,20 +195,20 @@ def get_stylesheet() -> str:
     }}
 
     #Logo {{
-        color: {c['ACCENT']};
+        color: {c['TEXT_PRIMARY']};
         font-size: 16px;
         font-weight: 800;
-        padding: 26px 22px;
-        border-bottom: 1px solid {c['BORDER']};
+        padding: 26px 24px 18px 24px;
         letter-spacing: 0.3px;
+        background-color: transparent;
     }}
 
     #CategoryLabel {{
         color: {c['TEXT_MUTED']};
         font-size: 10px;
-        font-weight: 800;
-        letter-spacing: 1.8px;
-        padding: 16px 22px 6px 22px;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        padding: 20px 24px 8px 24px;
         background-color: transparent;
     }}
 
@@ -257,27 +217,27 @@ def get_stylesheet() -> str:
         color: {c['TEXT_SECONDARY']};
         border: none;
         border-radius: 10px;
-        padding: 10px 18px;
+        padding: 11px 18px;
         text-align: left;
         font-size: 13px;
         font-weight: 500;
-        margin: 2px 12px;
+        margin: 2px 14px;
     }}
     QPushButton#NavButton:hover {{
         background-color: {c['BG_OVERLAY']};
         color: {c['TEXT_PRIMARY']};
     }}
     QPushButton#NavButton:checked {{
-        background-color: {c['ACCENT']};
-        color: white;
+        background-color: {c['BG_OVERLAY']};
+        color: {c['ACCENT']};
         font-weight: 700;
     }}
 
     /* ═════════ CARDS ═════════ */
     #Card {{
-        background-color: {c['BG_GLASS']};
+        background-color: {c['BG_ELEVATED']};
         border: 1px solid {c['BORDER']};
-        border-radius: 16px;
+        border-radius: 14px;
     }}
 
     #CardTitle {{
@@ -288,10 +248,10 @@ def get_stylesheet() -> str:
     }}
 
     #CardValue {{
-        color: {c['ACCENT']};
-        font-size: 34px;
+        color: {c['TEXT_PRIMARY']};
+        font-size: 32px;
         font-weight: 800;
-        letter-spacing: -1px;
+        letter-spacing: -0.5px;
     }}
 
     /* ═════════ HEADINGS ═════════ */
@@ -310,26 +270,42 @@ def get_stylesheet() -> str:
 
     /* ═════════ BUTTONS ═════════ */
     QPushButton {{
+        background-color: transparent;
+        color: {c['TEXT_PRIMARY']};
+        border: 1px solid {c['BORDER_LIGHT']};
+        border-radius: 10px;
+        padding: 10px 22px;
+        font-size: 13px;
+        font-weight: 600;
+        min-height: 22px;
+    }}
+    QPushButton:hover {{
+        background-color: {c['ACCENT']};
+        color: white;
+        border-color: {c['ACCENT']};
+    }}
+    QPushButton:pressed {{
+        background-color: {c['ACCENT_DARK']};
+    }}
+    QPushButton:disabled {{
+        background-color: transparent;
+        color: {c['TEXT_MUTED']};
+        border-color: {c['BORDER']};
+    }}
+
+    QPushButton#PrimaryButton {{
         background-color: {c['ACCENT']};
         color: white;
         border: none;
-        border-radius: 12px;
-        padding: 11px 24px;
-        font-size: 13px;
-        font-weight: 700;
-        min-height: 22px;
     }}
-    QPushButton:hover {{ background-color: {c['ACCENT_HOVER']}; }}
-    QPushButton:pressed {{ background-color: {c['ACCENT_DARK']}; }}
-    QPushButton:disabled {{
-        background-color: {c['BORDER']};
-        color: {c['TEXT_MUTED']};
+    QPushButton#PrimaryButton:hover {{
+        background-color: {c['ACCENT_HOVER']};
     }}
 
     QPushButton#SecondaryButton {{
         background-color: transparent;
-        color: {c['TEXT_PRIMARY']};
-        border: 1.5px solid {c['BORDER_LIGHT']};
+        color: {c['TEXT_SECONDARY']};
+        border: 1px solid {c['BORDER_LIGHT']};
     }}
     QPushButton#SecondaryButton:hover {{
         border-color: {c['ACCENT']};
@@ -338,10 +314,13 @@ def get_stylesheet() -> str:
     }}
 
     QPushButton#DangerButton {{
-        background-color: {c['DANGER']};
+        background-color: transparent;
+        color: {c['DANGER']};
+        border: 1px solid {c['DANGER']};
     }}
     QPushButton#DangerButton:hover {{
-        background-color: #fca5a5;
+        background-color: {c['DANGER']};
+        color: white;
     }}
 
     /* ═════════ PROGRESS BARS ═════════ */
@@ -349,8 +328,7 @@ def get_stylesheet() -> str:
         background-color: {c['BG_OVERLAY']};
         border: none;
         border-radius: 5px;
-        height: 8px;
-        text-align: center;
+        height: 6px;
         color: transparent;
     }}
     QProgressBar::chunk {{
@@ -361,9 +339,9 @@ def get_stylesheet() -> str:
     QProgressBar#Warning::chunk {{ background-color: {c['WARNING']}; }}
     QProgressBar#Danger::chunk  {{ background-color: {c['DANGER']}; }}
 
-    /* ═════════ LISTS / TABLES ═════════ */
+    /* ═════════ LISTS ═════════ */
     QListWidget, QTreeWidget, QTableWidget {{
-        background-color: {c['BG_GLASS']};
+        background-color: {c['BG_ELEVATED']};
         border: 1px solid {c['BORDER']};
         border-radius: 12px;
         padding: 6px;
@@ -375,34 +353,34 @@ def get_stylesheet() -> str:
         border-radius: 8px;
         margin: 2px 0;
     }}
-    QListWidget::item:hover, QTreeWidget::item:hover {{
+    QListWidget::item:hover {{
         background-color: {c['BG_OVERLAY']};
     }}
-    QListWidget::item:selected, QTreeWidget::item:selected {{
-        background-color: {c['ACCENT']};
-        color: white;
+    QListWidget::item:selected {{
+        background-color: {c['BG_OVERLAY']};
+        color: {c['ACCENT']};
     }}
 
     /* ═════════ INPUTS ═════════ */
     QLineEdit, QSpinBox, QComboBox {{
-        background-color: {c['BG_OVERLAY']};
+        background-color: {c['BG_ELEVATED']};
         color: {c['TEXT_PRIMARY']};
-        border: 1.5px solid {c['BORDER']};
-        border-radius: 12px;
-        padding: 8px 14px;
+        border: 1px solid {c['BORDER']};
+        border-radius: 10px;
+        padding: 10px 14px;
         font-size: 13px;
-        min-height: 20px;
+        min-height: 22px;
         selection-background-color: {c['ACCENT']};
     }}
     QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{
-        border: 1.5px solid {c['ACCENT']};
+        border: 1px solid {c['ACCENT']};
     }}
     QLineEdit::placeholder {{ color: {c['TEXT_MUTED']}; }}
     QComboBox::drop-down {{ border: none; width: 26px; }}
     QComboBox QAbstractItemView {{
         background-color: {c['BG_ELEVATED']};
         color: {c['TEXT_PRIMARY']};
-        border: 1.5px solid {c['BORDER_LIGHT']};
+        border: 1px solid {c['BORDER_LIGHT']};
         border-radius: 10px;
         selection-background-color: {c['ACCENT']};
         padding: 6px;
@@ -415,32 +393,61 @@ def get_stylesheet() -> str:
         font-size: 13px;
     }}
     QCheckBox::indicator {{
-        width: 18px; height: 18px;
+        width: 20px; height: 20px;
         border-radius: 5px;
-        border: 1.5px solid {c['BORDER_LIGHT']};
-        background-color: {c['BG_OVERLAY']};
+        border: 2px solid {c['BORDER_LIGHT']};
+        background-color: {c['BG_ELEVATED']};
     }}
     QCheckBox::indicator:checked {{
         background-color: {c['ACCENT']};
-        border: 1.5px solid {c['ACCENT']};
+        border: 2px solid {c['ACCENT']};
     }}
-    QCheckBox::indicator:hover {{ border-color: {c['ACCENT']}; }}
+    QCheckBox::indicator:hover {{
+        border-color: {c['ACCENT']};
+    }}
 
     /* ═════════ GROUP BOX ═════════ */
     QGroupBox {{
         color: {c['TEXT_SECONDARY']};
-        border: 1.5px solid {c['BORDER']};
-        border-radius: 14px;
+        border: 1px solid {c['BORDER']};
+        border-radius: 12px;
         margin-top: 16px;
         padding: 20px;
         font-weight: 700;
         font-size: 12px;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.8px;
     }}
     QGroupBox::title {{
         subcontrol-origin: margin;
         left: 16px;
         padding: 0 10px;
+        color: {c['TEXT_SECONDARY']};
+    }}
+
+    /* ═════════ TABS ═════════ */
+    QTabWidget::pane {{
+        border: 1px solid {c['BORDER']};
+        border-radius: 12px;
+        background-color: {c['BG_ELEVATED']};
+        top: -1px;
+    }}
+    QTabBar::tab {{
+        background-color: transparent;
+        color: {c['TEXT_SECONDARY']};
+        padding: 10px 22px;
+        margin-right: 4px;
+        border: 1px solid transparent;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 12px;
+    }}
+    QTabBar::tab:hover {{
+        background-color: {c['BG_OVERLAY']};
+        color: {c['TEXT_PRIMARY']};
+    }}
+    QTabBar::tab:selected {{
+        background-color: {c['ACCENT']};
+        color: white;
     }}
 
     /* ═════════ SCROLLBAR ═════════ */
@@ -450,9 +457,11 @@ def get_stylesheet() -> str:
     QScrollBar::handle:vertical {{
         background: {c['BORDER_LIGHT']};
         border-radius: 5px;
-        min-height: 30px;
+        min-height: 40px;
     }}
-    QScrollBar::handle:vertical:hover {{ background: {c['ACCENT']}; }}
+    QScrollBar::handle:vertical:hover {{
+        background: {c['ACCENT']};
+    }}
     QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
     QScrollBar:horizontal {{
         background: transparent; height: 10px; margin: 4px;
@@ -460,15 +469,15 @@ def get_stylesheet() -> str:
     QScrollBar::handle:horizontal {{
         background: {c['BORDER_LIGHT']};
         border-radius: 5px;
-        min-width: 30px;
+        min-width: 40px;
     }}
 
     /* ═════════ TOOLTIPS ═════════ */
     QToolTip {{
         background-color: {c['BG_ELEVATED']};
         color: {c['TEXT_PRIMARY']};
-        border: 1.5px solid {c['ACCENT']};
-        border-radius: 10px;
+        border: 1px solid {c['ACCENT']};
+        border-radius: 8px;
         padding: 8px 12px;
         font-size: 12px;
     }}
@@ -479,6 +488,7 @@ def get_stylesheet() -> str:
         color: {c['TEXT_SECONDARY']};
         border-top: 1px solid {c['BORDER']};
         font-size: 12px;
+        padding: 4px 12px;
     }}
 
     QLabel {{ color: {c['TEXT_PRIMARY']}; background-color: transparent; }}
