@@ -1,4 +1,4 @@
-"""Auto-Updater via GitHub Releases — mit Encoding-Fix."""
+"""Auto-Updater via GitHub Releases — mit Fix für Update-Loop."""
 import os
 import sys
 import json
@@ -16,8 +16,10 @@ except ImportError:
 from src.core.config import APP_VERSION, GITHUB_API
 
 
+# ═══════════════════════════════════════════════════════════════
+# SSL-FIX für EXE
+# ═══════════════════════════════════════════════════════════════
 def _fix_ssl_for_frozen():
-    """Setzt SSL_CERT_FILE wenn App als EXE läuft."""
     if not getattr(sys, "frozen", False):
         return
     try:
@@ -29,19 +31,16 @@ def _fix_ssl_for_frozen():
             return
     except Exception:
         pass
-
     try:
         exe_dir = Path(sys.executable).parent
-        candidates = [
+        for p in [
             exe_dir / "_internal" / "certifi" / "cacert.pem",
             exe_dir / "certifi" / "cacert.pem",
-            exe_dir / "_internal" / "cacert.pem",
             exe_dir / "cacert.pem",
-        ]
-        for cert_file in candidates:
-            if cert_file.exists():
-                os.environ["SSL_CERT_FILE"] = str(cert_file)
-                os.environ["REQUESTS_CA_BUNDLE"] = str(cert_file)
+        ]:
+            if p.exists():
+                os.environ["SSL_CERT_FILE"] = str(p)
+                os.environ["REQUESTS_CA_BUNDLE"] = str(p)
                 return
     except Exception:
         pass
@@ -50,6 +49,9 @@ def _fix_ssl_for_frozen():
 _fix_ssl_for_frozen()
 
 
+# ═══════════════════════════════════════════════════════════════
+# VERSION-VERGLEICH
+# ═══════════════════════════════════════════════════════════════
 def parse_version(v: str) -> tuple:
     v = v.lstrip("v").strip()
     parts = []
@@ -67,6 +69,9 @@ def is_newer(latest: str, current: str) -> bool:
     return parse_version(latest) > parse_version(current)
 
 
+# ═══════════════════════════════════════════════════════════════
+# UPDATE-CHECK
+# ═══════════════════════════════════════════════════════════════
 def check_for_update(timeout: int = 10) -> dict:
     result = {
         "update_available": False,
@@ -91,10 +96,7 @@ def check_for_update(timeout: int = 10) -> dict:
         )
 
         if r.status_code == 404:
-            result["error"] = "Kein Release auf GitHub gefunden"
-            return result
-        if r.status_code == 401:
-            result["error"] = "GitHub-Repo privat oder nicht vorhanden"
+            result["error"] = "Kein Release gefunden"
             return result
         if r.status_code != 200:
             result["error"] = f"HTTP {r.status_code}"
@@ -118,9 +120,14 @@ def check_for_update(timeout: int = 10) -> dict:
                     "browser_download_url", ""
                 )
                 break
+            if name.endswith(".zip"):
+                result["download_url"] = asset.get(
+                    "browser_download_url", ""
+                )
+                break
 
         if not result["download_url"]:
-            result["error"] = "Keine .exe im Release gefunden"
+            result["error"] = "Keine .exe / .zip im Release"
             return result
 
         result["update_available"] = True
@@ -137,6 +144,9 @@ def check_for_update(timeout: int = 10) -> dict:
         return result
 
 
+# ═══════════════════════════════════════════════════════════════
+# DOWNLOAD
+# ═══════════════════════════════════════════════════════════════
 def download_update(url: str, progress_cb: Callable = None) -> tuple:
     if not HAS_REQUESTS:
         return False, "requests fehlt"
@@ -169,32 +179,37 @@ def download_update(url: str, progress_cb: Callable = None) -> tuple:
                         progress_cb(pct, downloaded, total)
 
         return True, str(new_exe)
-    except requests.exceptions.SSLError as e:
-        return False, f"SSL-Fehler: {str(e)[:150]}"
     except Exception as e:
         return False, str(e)[:200]
 
 
+# ═══════════════════════════════════════════════════════════════
+# UPDATE ANWENDEN — Fix für Update-Loop!
+# ═══════════════════════════════════════════════════════════════
 def apply_update(new_exe_path: str) -> tuple:
+    """
+    Ersetzt die aktuelle .exe.
+    Fix: Killt ALLE laufenden Instanzen + wartet bis Datei frei ist.
+    """
     try:
         if getattr(sys, "frozen", False):
-            current_exe = Path(sys.executable)
+            current_exe = Path(sys.executable).resolve()
+            current_pid = os.getpid()
         else:
             return False, "Update nur in EXE-Version möglich"
 
-        new_path = Path(new_exe_path)
+        new_path = Path(new_exe_path).resolve()
         if not new_path.exists():
-            return False, f"Update-Datei nicht gefunden: {new_exe_path}"
+            return False, f"Update-Datei fehlt: {new_exe_path}"
 
-        script_path = Path(tempfile.gettempdir()) / "cleaner_update.ps1"
-
-        cur = str(current_exe).replace("'", "''")
-        new = str(new_path).replace("'", "''")
-
+        # ═══════════════════════════════════════════════════════
+        # PowerShell-Skript: killt alte EXE + wartet + ersetzt + startet
+        # ═══════════════════════════════════════════════════════
         ps_script = f"""
 $ErrorActionPreference = 'SilentlyContinue'
-$currentExe = '{cur}'
-$newExe = '{new}'
+$currentExe = '{current_exe}'
+$newExe = '{new_path}'
+$currentPid = {current_pid}
 $backupExe = "$currentExe.old"
 
 Write-Host ""
@@ -203,64 +218,112 @@ Write-Host "  Cleaner Pro - Update wird installiert..."
 Write-Host "================================================"
 Write-Host ""
 
-Start-Sleep -Seconds 5
+# ═══ SCHRITT 1: Killt ALLE laufenden Instanzen der aktuellen EXE ═══
+Write-Host "[1/6] Beende laufende Cleaner Pro Instanzen..."
 
+# Aktuellen Prozess ausschliessen (der beendet sich selbst)
+Get-Process | Where-Object {{
+    $_.Path -eq $currentExe -and $_.Id -ne $currentPid
+}} | Stop-Process -Force
+
+# Warte bis alle Prozesse weg sind
+$waitCount = 0
+while ($waitCount -lt 30) {{
+    $still = Get-Process | Where-Object {{
+        $_.Path -eq $currentExe -and $_.Id -ne $currentPid
+    }}
+    if (-not $still) {{ break }}
+    Start-Sleep -Milliseconds 500
+    $waitCount++
+}}
+
+# Auch python-Prozesse aus dem gleichen Ordner killen
+Get-Process python* | Where-Object {{
+    $_.Path -like "*SystemCleanerPro*"
+}} | Stop-Process -Force
+
+Write-Host "      OK"
+Start-Sleep -Seconds 2
+
+# ═══ SCHRITT 2: Prüfe ob neue EXE existiert ═══
+Write-Host "[2/6] Prüfe Update-Datei..."
 if (-not (Test-Path $newExe)) {{
-    Write-Host "FEHLER: Neue EXE nicht gefunden:"
-    Write-Host $newExe
+    Write-Host "      FEHLER: $newExe fehlt!"
     Read-Host "Enter zum Beenden"
     exit 1
 }}
+Write-Host "      OK"
 
+# ═══ SCHRITT 3: Alte EXE umbenennen (nicht löschen) ═══
+Write-Host "[3/6] Benenne alte Version um..."
 if (Test-Path $backupExe) {{
-    Remove-Item $backupExe -Force -ErrorAction SilentlyContinue
+    Remove-Item $backupExe -Force
 }}
 
 try {{
     Move-Item -Path $currentExe -Destination $backupExe -Force
-    Write-Host "  [1/4] Alte Version gesichert"
+    Write-Host "      OK -> $backupExe"
 }} catch {{
-    Write-Host "FEHLER: Alte EXE konnte nicht umbenannt werden!"
+    Write-Host "      FEHLER: Alte EXE konnte nicht umbenannt werden!"
+    Write-Host "      Bitte Cleaner Pro manuell schliessen."
     Read-Host "Enter zum Beenden"
     exit 1
 }}
 
+# ═══ SCHRITT 4: Neue EXE kopieren ═══
+Write-Host "[4/6] Kopiere neue Version..."
 try {{
     Copy-Item -Path $newExe -Destination $currentExe -Force
-    Write-Host "  [2/4] Neue Version kopiert"
+    Write-Host "      OK"
 }} catch {{
-    Write-Host "FEHLER beim Kopieren!"
+    Write-Host "      FEHLER beim Kopieren!"
+    # Rollback
     Move-Item -Path $backupExe -Destination $currentExe -Force
     Read-Host "Enter zum Beenden"
     exit 1
 }}
 
+# Prüfe ob Kopie erfolgreich
 if (-not (Test-Path $currentExe)) {{
-    Write-Host "FEHLER: Neue EXE nicht angekommen!"
+    Write-Host "      FEHLER: Kopie nicht angekommen!"
     Move-Item -Path $backupExe -Destination $currentExe -Force
     Read-Host "Enter zum Beenden"
     exit 1
 }}
 
-Write-Host "  [3/4] Update erfolgreich!"
-Write-Host ""
-Write-Host "Starte App in 3 Sekunden..."
-Start-Sleep -Seconds 3
-
+# ═══ SCHRITT 5: Starte neue Version ═══
+Write-Host "[5/6] Starte neue Version..."
+Start-Sleep -Seconds 1
 Start-Process -FilePath $currentExe
+Write-Host "      OK"
 
-Write-Host "  [4/4] App gestartet"
+# ═══ SCHRITT 6: Aufräumen ═══
+Write-Host "[6/6] Aufräumen..."
+Start-Sleep -Seconds 3
+Remove-Item $backupExe -Force
+Remove-Item $newExe -Force
+Remove-Item $MyInvocation.MyCommand.Path -Force
+
+Write-Host ""
+Write-Host "================================================"
+Write-Host "  UPDATE FERTIG!"
+Write-Host "================================================"
+Write-Host ""
+
+# Fenster schliessen
 Start-Sleep -Seconds 2
-
-Remove-Item $backupExe -Force -ErrorAction SilentlyContinue
-Remove-Item $newExe -Force -ErrorAction SilentlyContinue
-Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+exit 0
 """
+
+        # Skript speichern
+        script_path = Path(tempfile.gettempdir()) / "cleaner_update.ps1"
         script_path.write_text(ps_script, encoding="utf-8-sig")
 
+        # PowerShell starten (neues Fenster, damit User es sieht)
         subprocess.Popen(
             [
-                "powershell.exe", "-NoProfile",
+                "powershell.exe",
+                "-NoProfile",
                 "-ExecutionPolicy", "Bypass",
                 "-File", str(script_path)
             ],
@@ -268,15 +331,18 @@ Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
         )
 
         return True, (
-            "Update wird installiert.\n\n"
-            "1. Update-Fenster öffnet sich\n"
-            "2. App wird beendet\n"
-            "3. Neue Version startet automatisch"
+            "Update wird installiert...\n\n"
+            "Ein Fenster öffnet sich und zeigt den Fortschritt.\n"
+            "Die App wird jetzt beendet."
         )
+
     except Exception as e:
         return False, str(e)
 
 
+# ═══════════════════════════════════════════════════════════════
+# HELPERS
+# ═══════════════════════════════════════════════════════════════
 def get_download_size(url: str) -> int:
     if not HAS_REQUESTS:
         return 0
