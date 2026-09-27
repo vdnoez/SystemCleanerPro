@@ -39,3 +39,6 @@ dist/
 *.pyc
 __pycache__/
 *.log
+keygen.py
+src/modules/license.py
+data/license.json
